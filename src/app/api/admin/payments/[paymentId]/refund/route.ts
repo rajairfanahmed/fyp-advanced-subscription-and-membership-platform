@@ -1,9 +1,9 @@
-import { Types } from "mongoose";
+import { isRecordId } from "@/lib/db/ids";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminContext } from "@/lib/auth/require-admin";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
-import { PaymentModel } from "@/lib/mongodb/models";
+import { PaymentModel, SubscriptionModel } from "@/lib/mongodb/models";
 import { createNotification } from "@/lib/mongodb/notifications";
 import {
   getStripeClient,
@@ -27,7 +27,7 @@ export async function POST(
     await connectToMongoDB();
 
     const { paymentId } = await context.params;
-    if (!Types.ObjectId.isValid(paymentId)) {
+    if (!isRecordId(paymentId)) {
       return NextResponse.json(
         { error: "Invalid payment id." },
         { status: 400 }
@@ -75,14 +75,34 @@ export async function POST(
     payment.status = "refunded";
     await payment.save();
 
+    if (payment.subscriptionId) {
+      const sub = await SubscriptionModel.findById(payment.subscriptionId);
+      if (sub && sub.status !== "canceled" && sub.status !== "expired") {
+        if (sub.stripeSubscriptionId) {
+          try {
+            const { cancelStripeSubscriptionNow } = await import(
+              "@/lib/stripe/subscription-ops"
+            );
+            await cancelStripeSubscriptionNow(sub.stripeSubscriptionId);
+          } catch (error) {
+            console.warn("[admin:payment:refund:cancel-stripe]", error);
+          }
+        }
+        sub.status = "canceled";
+        sub.canceledAt = new Date();
+        sub.cancelAtPeriodEnd = false;
+        await sub.save();
+      }
+    }
+
     try {
       await createNotification({
         recipientClerkUserId: payment.subscriberClerkUserId,
         category: "payment",
         title: "Refund issued",
-        message: `Nexora support refunded your payment of $${(
+        message: `Advanced Subscription & Membership Platform support refunded your payment of $${(
           payment.amountCents / 100
-        ).toFixed(2)}. The amount should appear back on your statement within a few business days.`,
+        ).toFixed(2)}. The related membership has been cancelled. The amount should appear back on your statement within a few business days.`,
         link: "/billing",
       });
     } catch (error) {

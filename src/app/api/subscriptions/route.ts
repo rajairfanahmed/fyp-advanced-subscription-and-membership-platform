@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { ACCOUNT_SUSPENDED_MESSAGE } from "@/lib/auth/profile-sync";
 import { subscribeCurrentUserToFreeTier } from "@/lib/mongodb/subscriptions";
 
 /**
@@ -8,9 +9,8 @@ import { subscribeCurrentUserToFreeTier } from "@/lib/mongodb/subscriptions";
  * Body: { creatorClerkUserId?: string; creatorSlug?: string }
  *
  * Free-tier subscribe. The current subscriber gets an active free
- * Subscription row tying them to the supplied creator. Paid plans are
- * not accepted here — those will go through Stripe Checkout in a
- * later task.
+ * Subscription row tying them to the supplied creator. Paid plans go
+ * through Stripe Checkout (`POST /api/checkout`).
  */
 export async function POST(req: Request) {
   const { userId } = await auth();
@@ -33,6 +33,12 @@ export async function POST(req: Request) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to subscribe.";
+    if (
+      message === "Only subscriber accounts can subscribe to creators." ||
+      message === ACCOUNT_SUSPENDED_MESSAGE
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[subscriptions:create-free]", error);
     return NextResponse.json({ error: message }, { status: 400 });
   }

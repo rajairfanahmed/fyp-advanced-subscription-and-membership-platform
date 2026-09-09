@@ -1,5 +1,5 @@
 /**
- * Auth role configuration for Nexora.
+ * Auth role configuration for Advanced Subscription & Membership Platform.
  *
  * Roles:
  * - subscriber: browses paid content library

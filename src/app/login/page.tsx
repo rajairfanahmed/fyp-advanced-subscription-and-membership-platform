@@ -189,8 +189,8 @@ function LoginForm() {
     setError("");
 
     try {
-      sessionStorage.setItem("nexora_oauth_intent", "login");
-      sessionStorage.removeItem("nexora_signup_role");
+      sessionStorage.setItem("platform_oauth_intent", "login");
+      sessionStorage.removeItem("platform_signup_role");
 
       await signIn.authenticateWithRedirect({
         strategy: "oauth_google",
@@ -221,7 +221,7 @@ function LoginForm() {
               <div className="mb-8">
                 <Badge variant="sky" className="mb-4">Welcome Back</Badge>
                 <h1 className="text-4xl md:text-5xl font-black font-display text-[var(--color-ink)] mb-4 tracking-tight">
-                  Log In To Nexora
+                  Log In To Advanced Subscription & Membership Platform
                 </h1>
                 <p className="text-lg text-[var(--color-muted)] font-medium leading-relaxed max-w-lg">
                   Access your content library, creator workspace, or admin area.

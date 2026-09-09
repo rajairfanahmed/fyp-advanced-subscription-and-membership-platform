@@ -99,7 +99,7 @@ export default function CreatorsPage() {
                   </div>
                   <h2 className="text-xl font-black font-display text-slate-950 mb-2">{creator.name}</h2>
                   <p className="text-sm font-medium text-slate-600 line-clamp-3 min-h-[3.75rem]">
-                    {creator.bio || "Creator profile details are coming soon."}
+                    {creator.bio || "This creator hasn’t added a bio yet."}
                   </p>
                   <div className="mt-5 grid grid-cols-3 gap-3 text-center">
                     <div className="rounded-xl bg-slate-50 border border-slate-100 p-3">

@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/Badge";
 import {
   Search,
   Filter,
-  MoreHorizontal,
   UserSquare2,
   DollarSign,
   TrendingUp,
@@ -270,16 +269,14 @@ export default function AdminCreatorsPage() {
                                 rel="noopener noreferrer"
                               >
                                 <Button variant="outline" size="sm" className="h-9 px-4 text-xs bg-white rounded-xl">
-                                  View
+                                  Profile
                                 </Button>
                               </Link>
-                              <button
-                                className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all"
-                                disabled
-                                title="More actions land in a follow-up"
-                              >
-                                <MoreHorizontal className="w-4 h-4" />
-                              </button>
+                              <Link href={`/admin/users/${encodeURIComponent(creator.clerkUserId)}`}>
+                                <Button variant="outline" size="sm" className="h-9 px-4 text-xs bg-white rounded-xl">
+                                  Account
+                                </Button>
+                              </Link>
                             </div>
                           </td>
                         </tr>

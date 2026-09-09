@@ -24,7 +24,7 @@ export async function serializePayment(
     id: doc._id.toString(),
     subscriberClerkUserId: doc.subscriberClerkUserId,
     creatorClerkUserId: doc.creatorClerkUserId,
-    creatorName: creator?.creatorName ?? "Nexora Creator",
+    creatorName: creator?.creatorName ?? "Advanced Subscription & Membership Platform Creator",
     creatorSlug: creator?.creatorSlug ?? "",
     subscriptionId: doc.subscriptionId ? doc.subscriptionId.toString() : null,
     planId: doc.planId ? doc.planId.toString() : null,

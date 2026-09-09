@@ -383,7 +383,7 @@ export default function AdminAnalyticsPage() {
                   <span className="text-[10px] font-black text-red-700 ml-3 uppercase tracking-widest opacity-80">Failure Ratio</span>
                 </div>
                 <p className="text-[13px] font-medium text-red-800 leading-relaxed opacity-80">
-                  Failed-to-total ratio across all payment events. Stripe dunning flow lands in a follow-up.
+                  Failed-to-total ratio across all payment events. Retry a failed charge from Payments.
                 </p>
               </div>
             </MotionReveal>

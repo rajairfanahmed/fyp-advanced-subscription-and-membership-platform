@@ -4,6 +4,7 @@ export {
   createStorageObjectKey,
   deleteFromCloudflareR2,
   getCloudflareR2Client,
+  getObjectFromCloudflareR2,
   uploadStreamToCloudflareR2,
   uploadToCloudflareR2,
   validateStorageFile,

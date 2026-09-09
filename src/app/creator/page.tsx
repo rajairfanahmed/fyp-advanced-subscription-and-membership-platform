@@ -118,10 +118,10 @@ export default function CreatorOverviewPage() {
       bg: "bg-violet-50",
     },
     {
-      label: "Renewal Reminders",
-      value: "0",
+      label: "Pending cancellations",
+      value: metrics ? formatNumber(metrics.pendingCancellations) : "—",
       icon: <BellRing className="w-5 h-5 text-amber-600" />,
-      trend: "Coming soon",
+      trend: "Cancel at period end",
       bg: "bg-amber-50",
     },
     {

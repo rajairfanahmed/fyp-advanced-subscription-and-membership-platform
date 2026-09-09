@@ -87,6 +87,12 @@ export async function GET(req: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to load analytics.";
+    if (
+      message === "Only creator accounts can view creator stats." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[creator:analytics]", error);
     return NextResponse.json({ error: message }, { status: 400 });
   }

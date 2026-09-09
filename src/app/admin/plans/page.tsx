@@ -324,7 +324,7 @@ export default function AdminPlansPage() {
                 <h3 className="font-black text-amber-900 uppercase tracking-wider text-sm mb-2">Plan editing is creator-owned</h3>
                 <p className="text-[13px] font-medium text-amber-800 leading-relaxed opacity-90">
                   Plans live under each creator and can only be edited by that creator from <code className="px-1.5 py-0.5 rounded bg-amber-100/60">/creator/plans</code>.
-                  Admin tools to override or feature-flag a plan globally will land in a follow-up.
+                  This page is a read-only catalog of every plan on the platform.
                 </p>
               </div>
             </div>

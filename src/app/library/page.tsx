@@ -88,7 +88,7 @@ function CardGrid({ cards }: { cards: LibraryCard[] }) {
             isLocked={card.isLocked}
             thumbnailUrl={card.thumbnailUrl}
             href={`/library/${card.id}`}
-            unlockHref="/pricing"
+            unlockHref={card.creatorSlug ? `/creators/${card.creatorSlug}` : "/creators"}
             ctaText={ctaTextFor(card)}
           />
         </MotionItem>
@@ -248,6 +248,17 @@ export default function LibraryPage() {
         </Container>
       )}
 
+      {!isLoading && cards.some((c) => c.isLocked) && (
+        <Container className="mb-8">
+          <div className="bg-sky-50 border border-sky-100 rounded-2xl p-5 text-sm font-medium text-sky-900 leading-relaxed">
+            Locked items need that creator&apos;s <span className="font-black">Basic</span> or{" "}
+            <span className="font-black">Premium</span> plan.{" "}
+            <span className="font-black">Follow free</span> only unlocks Free content. Open the
+            creator&apos;s profile and use Subscribe to pay.
+          </div>
+        </Container>
+      )}
+
       {!isLoading && visibleCards.length === 0 ? (
         <Container className="mb-20">
           <div className="bg-white rounded-3xl border border-slate-200 p-10 md:p-14 text-center max-w-2xl mx-auto">
@@ -356,14 +367,14 @@ export default function LibraryPage() {
                       <div className="flex items-center gap-3">
                         <Badge variant="sky">Premium</Badge>
                         <h2 className="text-2xl md:text-3xl font-black font-display text-[var(--color-ink)]">
-                          Premium templates &amp; downloads
+                          Premium &amp; downloads
                           <span className="ml-3 text-sm font-bold text-slate-400">
                             {premiumCards.length}
                           </span>
                         </h2>
                       </div>
-                      <Button variant="primary" size="sm" href="/pricing">
-                        Upgrade Plans
+                      <Button variant="primary" size="sm" href="/creators">
+                        Browse creators to upgrade
                       </Button>
                     </div>
                     <CardGrid cards={premiumCards} />

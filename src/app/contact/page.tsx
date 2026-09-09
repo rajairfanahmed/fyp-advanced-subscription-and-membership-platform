@@ -20,7 +20,7 @@ const CONTACT_CARDS = [
   {
     icon: <LayoutDashboard className="w-6 h-6 text-sky-500" />,
     title: "Creator Setup",
-    description: "Questions about publishing content, setting access rules, creating plans, and preparing paid membership flows.",
+    description: "Questions about publishing content, setting access rules, creating plans, and running paid checkout and subscriptions.",
   },
   {
     icon: <ShieldCheck className="w-6 h-6 text-violet-500" />,
@@ -96,7 +96,7 @@ export default function ContactPage() {
 
             <MotionItem>
               <h1 className="text-5xl md:text-6xl lg:text-7xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6">
-                Contact The <span className="text-gradient-primary">Nexora Team</span>
+                Contact The <span className="text-gradient-primary">Advanced Subscription & Membership Platform Team</span>
               </h1>
             </MotionItem>
 
@@ -291,7 +291,7 @@ export default function ContactPage() {
             </MotionItem>
             <MotionItem>
               <p className="text-xl text-[var(--color-muted)] max-w-2xl mx-auto mb-12 leading-relaxed font-medium">
-                Nexora keeps creator revenue, subscriber access, and platform management structured from the first version.
+                Advanced Subscription & Membership Platform keeps creator revenue, subscriber access, and platform management structured from the first version.
               </p>
             </MotionItem>
             <MotionItem className="flex flex-col sm:flex-row justify-center items-center gap-4">

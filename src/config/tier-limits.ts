@@ -16,7 +16,7 @@ export type TierLimits = {
   monthlyDownloads: number;
   /** Whether the tier is allowed to download files at all. */
   canDownload: boolean;
-  /** Whether the tier sees a "priority support" badge in account UI. */
+  /** Unused by UI — kept so serialized limits stay stable. */
   prioritySupport: boolean;
   /** Marketing label for the tier shown in the subscriber dashboard. */
   label: string;
@@ -62,7 +62,7 @@ export const TIER_LIMITS: Record<PlanAccessLevel, TierLimits> = {
     features: [
       "Watch every tier of content from the creator.",
       "Unlimited file downloads.",
-      "Priority support and templates.",
+      "Every file download from that creator.",
     ],
   },
 };

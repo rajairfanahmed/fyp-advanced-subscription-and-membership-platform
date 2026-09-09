@@ -66,7 +66,7 @@ export default function ForgotPasswordPage() {
       });
 
       // Store email in sessionStorage so reset-password page can use it
-      sessionStorage.setItem("nexora_reset_email", email);
+      sessionStorage.setItem("platform_reset_email", email);
       setCodeSent(true);
 
       // Redirect to reset-password page after a brief success state

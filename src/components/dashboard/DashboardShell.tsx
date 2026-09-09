@@ -25,6 +25,7 @@ import {
   BarChart3
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { siteConfig } from "@/config/site";
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -96,7 +97,9 @@ export function DashboardShell({ children, role }: DashboardShellProps) {
               <BrandIcon className="w-5 h-5 text-white" />
             </div>
             <div>
-              <h1 className="font-black font-display text-slate-900 text-xl tracking-tighter leading-none uppercase">Nexora</h1>
+              <h1 className="font-black font-display text-slate-900 text-xl tracking-tighter leading-none uppercase">
+                {siteConfig.shortName}
+              </h1>
               <span className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1.5 block opacity-80">
                 {brandLabel}
               </span>
@@ -146,7 +149,9 @@ export function DashboardShell({ children, role }: DashboardShellProps) {
           <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shadow-sm", brandIconColor)}>
             <BrandIcon className="w-4 h-4 text-white" />
           </div>
-          <h1 className="font-black font-display text-slate-900 tracking-tighter leading-none uppercase text-sm">Nexora</h1>
+          <h1 className="font-black font-display text-slate-900 tracking-tighter leading-none uppercase text-sm">
+            {siteConfig.shortName}
+          </h1>
         </Link>
 
         {/* Hamburger toggle — same style as homepage MainNav */}

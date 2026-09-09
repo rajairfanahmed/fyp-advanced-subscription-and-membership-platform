@@ -1,4 +1,7 @@
-import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
+import {
+  assertAccountIsActive,
+  ensureCurrentUserProfile,
+} from "@/lib/auth/profile-sync";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   ContentModel,
@@ -36,6 +39,7 @@ async function requireCreatorContext(): Promise<CreatorContext> {
   if (!synced || synced.role !== "creator" || synced.isAdmin) {
     throw new Error("Only creator accounts can view creator stats.");
   }
+  assertAccountIsActive(synced.profile);
 
   const creatorProfile = await CreatorProfileModel.findOne({
     clerkUserId: synced.user.id,
@@ -163,6 +167,7 @@ export async function getCreatorOverview(): Promise<CreatorOverviewResponse> {
     ACTIVE_STATUSES.includes(s.status as (typeof ACTIVE_STATUSES)[number])
   );
   const paidSubs = activeSubs.filter((s) => s.accessLevel !== "free");
+  const pendingCancellations = activeSubs.filter((s) => s.cancelAtPeriodEnd).length;
 
   const monthlyRevenueCents = paidSubs.reduce(
     (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
@@ -285,6 +290,7 @@ export async function getCreatorOverview(): Promise<CreatorOverviewResponse> {
       paidSubscribers: paidSubs.length,
       contentViews,
       cancelledSubscribers30d: cancelled30dCount,
+      pendingCancellations,
       conversionRatePercent,
     },
     topContent,

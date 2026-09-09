@@ -48,8 +48,8 @@ export default function SSOCallbackPage() {
         processing.current = true;
 
         // Session is active. Check for stored role from Google signup.
-        const storedRole = sessionStorage.getItem("nexora_signup_role");
-        const intent = sessionStorage.getItem("nexora_oauth_intent");
+        const storedRole = sessionStorage.getItem("platform_signup_role");
+        const intent = sessionStorage.getItem("platform_oauth_intent");
 
         if (intent === "signup" && (storedRole === "creator" || storedRole === "subscriber")) {
           // Persist role to Clerk publicMetadata via server endpoint
@@ -68,8 +68,8 @@ export default function SSOCallbackPage() {
         }
 
         // Clean up sessionStorage
-        sessionStorage.removeItem("nexora_signup_role");
-        sessionStorage.removeItem("nexora_oauth_intent");
+        sessionStorage.removeItem("platform_signup_role");
+        sessionStorage.removeItem("platform_oauth_intent");
 
         // Re-fetch redirect now that role may have been updated
         const redirectRes = await fetch("/api/auth/redirect", {

@@ -24,11 +24,12 @@ import type {
 } from "@/types/notification";
 import type {
   NotificationPreferences,
+  PublicUserRole,
   UserProfileResponse,
 } from "@/types/profile";
 
 const PREFERENCE_OPTIONS: Array<{ key: keyof NotificationPreferences; label: string }> = [
-  { key: "renewalReminders", label: "Renewal reminders" },
+  { key: "renewalReminders", label: "Billing notices" },
   { key: "paymentAlerts", label: "Payment alerts" },
   { key: "contentDigests", label: "New content updates" },
   { key: "accountNotices", label: "Account notices" },
@@ -119,6 +120,7 @@ export default function NotificationsPage() {
   const [preferencesSaving, setPreferencesSaving] = useState(false);
   const [preferencesMessage, setPreferencesMessage] = useState("");
   const [preferencesError, setPreferencesError] = useState("");
+  const [viewerRole, setViewerRole] = useState<PublicUserRole>("subscriber");
 
   useEffect(() => {
     let cancelled = false;
@@ -129,6 +131,7 @@ export default function NotificationsPage() {
         if (!res.ok) throw new Error("Failed to load profile.");
         const data = (await res.json()) as { profile: UserProfileResponse | null };
         if (cancelled) return;
+        setViewerRole(data.profile?.role ?? "subscriber");
         const next = {
           ...DEFAULT_PREFERENCES,
           ...(data.profile?.subscriberProfile?.notificationPreferences ?? {}),
@@ -510,8 +513,18 @@ export default function NotificationsPage() {
                 <div className="space-y-5">
                   {preferencesLoading ? (
                     <p className="text-sm font-medium text-slate-500">Loading preferences…</p>
+                  ) : viewerRole === "creator" ? (
+                    <>
+                      <p className="text-sm text-slate-600 font-medium leading-relaxed">
+                        Creator workspace alerts (new subscribers, renewals, revenue) are managed in Creator Settings.
+                      </p>
+                      <Button variant="outline" className="w-full text-xs" href="/creator/settings">
+                        Open creator settings
+                      </Button>
+                    </>
                   ) : (
-                    PREFERENCE_OPTIONS.map((pref) => (
+                    <>
+                    {PREFERENCE_OPTIONS.map((pref) => (
                       <div key={pref.key} className="flex items-center justify-between">
                         <span className="text-sm font-bold text-slate-700">{pref.label}</span>
                         <label className="relative inline-flex items-center cursor-pointer">
@@ -525,8 +538,7 @@ export default function NotificationsPage() {
                           <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
                         </label>
                       </div>
-                    ))
-                  )}
+                    ))}
 
                   {preferencesError && (
                     <p className="text-xs font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
@@ -554,6 +566,8 @@ export default function NotificationsPage() {
                           : "Saved"}
                     </Button>
                   </div>
+                    </>
+                  )}
                 </div>
               </div>
             </MotionReveal>
@@ -565,7 +579,9 @@ export default function NotificationsPage() {
                 <div>
                   <h3 className="text-sm font-bold text-sky-900 uppercase tracking-widest mb-2">How we notify you</h3>
                   <p className="text-sm text-sky-800 font-medium leading-relaxed">
-                    Important alerts regarding your billing cycle or major account changes will always be sent via email to ensure you never miss a payment. Promotional content and creator updates can be toggled off at any time.
+                    {viewerRole === "creator"
+                      ? "Workspace alerts for new subscribers, failed payments, and revenue live in Creator Settings. You can still read every in-app notification here."
+                      : "Billing and account alerts appear in this inbox when they happen. Promotional content and creator updates can be toggled off at any time."}
                   </p>
                 </div>
               </div>

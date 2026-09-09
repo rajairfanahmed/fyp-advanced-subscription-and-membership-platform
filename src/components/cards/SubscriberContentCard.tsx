@@ -44,8 +44,8 @@ export function SubscriberContentCard({
   href,
   unlockHref,
 }: SubscriberContentCardProps) {
-  const ctaHref = isLocked ? unlockHref || "/pricing" : href;
-  const thumbnailHref = isLocked ? unlockHref || "/pricing" : href;
+  const ctaHref = isLocked ? unlockHref || "/creators" : href;
+  const thumbnailHref = isLocked ? unlockHref || "/creators" : href;
 
   const thumbnailInner = (
     <>
@@ -162,7 +162,7 @@ export function SubscriberContentCard({
           {isLocked ? (
             <Button
               variant="outline"
-              href={ctaHref || "/pricing"}
+              href={ctaHref || "/creators"}
               className="w-full text-emerald-700 border-emerald-200 hover:bg-emerald-50"
             >
               {ctaText || "Upgrade to Unlock"}

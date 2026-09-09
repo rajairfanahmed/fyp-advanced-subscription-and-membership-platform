@@ -69,7 +69,7 @@ export default function VerifyEmailPage() {
       if (result.status === "complete") {
         // Do NOT call setActive — user must log in explicitly after verification.
         // Redirect to /login with success indicator.
-        sessionStorage.removeItem("nexora_signup_role");
+        sessionStorage.removeItem("platform_signup_role");
         window.location.href = "/login?verified=true";
       } else {
         setError("Verification incomplete. Please try again.");

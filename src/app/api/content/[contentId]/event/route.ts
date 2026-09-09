@@ -1,18 +1,16 @@
 import { NextResponse } from "next/server";
 
-import { recordWatchCompletionEvent } from "@/lib/mongodb/content";
+import {
+  getGuardedPublishedContent,
+  recordWatchCompletionEvent,
+} from "@/lib/mongodb/content";
 
 /**
  * POST /api/content/[contentId]/event
  * Body: { type: "watch_completion"; percent: number }
  *
- * Public endpoint that ingests video engagement events. We currently
- * only record `watch_completion` for averaging, but the `type`
- * discriminator leaves room for "play_started", "milestone_reached",
- * etc. without a route rename.
- *
- * The endpoint is open so that the player can fire the event for both
- * signed-in and anonymous viewers; `percent` is clamped server-side.
+ * Only counts when the viewer has access to the video. Locked clients
+ * cannot inflate completion analytics.
  */
 export async function POST(
   req: Request,
@@ -43,6 +41,17 @@ export async function POST(
 
   try {
     const { contentId } = await params;
+    const guarded = await getGuardedPublishedContent(contentId);
+    if (!guarded) {
+      return NextResponse.json({ error: "Content not found." }, { status: 404 });
+    }
+    if (!guarded.accessGranted || guarded.contentType !== "video") {
+      return NextResponse.json(
+        { error: "Watch events require access to this video." },
+        { status: 403 }
+      );
+    }
+
     const result = await recordWatchCompletionEvent({
       contentId,
       percent: rawPercent,

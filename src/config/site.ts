@@ -4,8 +4,9 @@
  */
 
 export const siteConfig = {
-  name: "Nexora",
-  title: "Nexora — Premium Subscription & Membership Platform",
+  name: "Advanced Subscription & Membership Platform",
+  shortName: "ASMP",
+  title: "Advanced Subscription & Membership Platform",
   description:
     "The all-in-one platform for digital creators, educators, and content businesses to sell paid content, manage subscription plans, control member access, and grow recurring revenue.",
   url: "http://localhost:3000",
@@ -19,7 +20,7 @@ export const siteConfig = {
     "recurring payments",
     "member access",
   ],
-  creator: "Nexora Team",
+  creator: "Advanced Subscription & Membership Platform",
 } as const;
 
 export type SiteConfig = typeof siteConfig;

@@ -17,10 +17,14 @@ export const dynamic = "force-dynamic";
 async function authorize(request: Request): Promise<boolean> {
   const expected = process.env.CRON_SECRET;
   if (!expected) {
-    // Without a secret configured we still allow the call so dev
-    // environments can fire the rollup manually, but log loudly.
+    if (process.env.NODE_ENV === "production") {
+      console.error(
+        "[cron/analytics/daily-rollup] CRON_SECRET is not set — refusing the request in production."
+      );
+      return false;
+    }
     console.warn(
-      "[cron/analytics/daily-rollup] CRON_SECRET is not set — endpoint is currently unauthenticated. Set CRON_SECRET to gate it."
+      "[cron/analytics/daily-rollup] CRON_SECRET is not set — endpoint is currently unauthenticated in development. Set CRON_SECRET to gate it."
     );
     return true;
   }

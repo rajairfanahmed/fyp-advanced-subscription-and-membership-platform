@@ -964,16 +964,20 @@ export async function getAdminPayments(): Promise<AdminPaymentsResponse> {
   const creatorIds = Array.from(
     new Set(paymentDocs.map((p) => p.creatorClerkUserId))
   );
-  const [userProfiles, creators] = await Promise.all([
+  const [userProfiles, creators, plans] = await Promise.all([
     subscriberIds.length
       ? UserProfileModel.find({ clerkUserId: { $in: subscriberIds } })
       : [],
     creatorIds.length
       ? CreatorProfileModel.find({ clerkUserId: { $in: creatorIds } })
       : [],
+    PlanModel.find({}),
   ]);
   const userMap = buildUserNameMap(userProfiles);
   const creatorMap = buildCreatorNameMap(creators);
+  const planLevelById = new Map(
+    plans.map((plan) => [plan._id.toString(), plan.accessLevel as AdminPaymentRow["accessLevel"]])
+  );
 
   const rows: AdminPaymentRow[] = paymentDocs.map((doc) => ({
     id: doc._id.toString(),
@@ -983,6 +987,9 @@ export async function getAdminPayments(): Promise<AdminPaymentsResponse> {
     amountCents: asNumber(doc.amountCents),
     currency: doc.currency,
     status: doc.status as AdminPaymentRow["status"],
+    accessLevel: doc.planId
+      ? planLevelById.get(doc.planId.toString()) ?? null
+      : null,
     paymentMethodLabel: doc.stripeChargeId || doc.stripePaymentIntentId ? "Stripe" : "—",
     paidAt: doc.paidAt ? doc.paidAt.toISOString() : null,
     createdAt: doc.createdAt.toISOString(),

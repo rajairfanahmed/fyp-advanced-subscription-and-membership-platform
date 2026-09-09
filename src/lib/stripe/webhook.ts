@@ -14,10 +14,9 @@ import type { PlanAccessLevel } from "@/types/plan";
 import type { SubscriptionStatus } from "@/types/subscription";
 
 /**
- * Map a Stripe subscription status to the value the local schema
- * accepts. Anything we don't know becomes "active" so we never crash
- * on a future Stripe enum addition; the rest of the app filters by
- * the strict union anyway.
+ * Map a Stripe subscription status to the local schema. Incomplete and
+ * paused never grant access — defaulting those (or unknown statuses)
+ * to "active" would unlock paid content before payment succeeds.
  */
 function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus {
   switch (status) {
@@ -29,13 +28,12 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
     case "unpaid":
       return "past_due";
     case "canceled":
-      return "canceled";
-    case "incomplete_expired":
-      return "expired";
-    case "incomplete":
     case "paused":
+      return "canceled";
+    case "incomplete":
+    case "incomplete_expired":
     default:
-      return "active";
+      return "expired";
   }
 }
 
@@ -64,6 +62,7 @@ type SubscriptionMetadata = {
   subscriberClerkUserId: string;
   creatorClerkUserId: string;
   planId: string;
+  accessLevel: string;
 };
 
 function readMetadata(
@@ -74,7 +73,28 @@ function readMetadata(
     subscriberClerkUserId: asString(metadata.subscriber_clerk_user_id),
     creatorClerkUserId: asString(metadata.creator_clerk_user_id),
     planId: asString(metadata.plan_id),
+    accessLevel: asString(metadata.access_level),
   };
+}
+
+function isAccessLevel(value: string): value is PlanAccessLevel {
+  return value === "free" || value === "basic" || value === "premium";
+}
+
+async function resolvePlanFromStripe(
+  stripeSub: Stripe.Subscription,
+  meta: Partial<SubscriptionMetadata>
+) {
+  if (meta.planId) {
+    const byId = await PlanModel.findById(meta.planId);
+    if (byId) return byId;
+  }
+  const priceId = stripeSub.items.data[0]?.price?.id;
+  if (priceId) {
+    const byPrice = await PlanModel.findOne({ stripePriceId: priceId });
+    if (byPrice) return byPrice;
+  }
+  return null;
 }
 
 /**
@@ -82,7 +102,7 @@ function readMetadata(
  * by `checkout.session.completed`, `customer.subscription.updated`,
  * and `customer.subscription.deleted` so behaviour stays consistent.
  */
-async function upsertSubscriptionFromStripe(
+export async function upsertSubscriptionFromStripe(
   stripeSub: Stripe.Subscription,
   metadataOverride?: Partial<SubscriptionMetadata>
 ): Promise<SubscriptionDocument | null> {
@@ -99,11 +119,32 @@ async function upsertSubscriptionFromStripe(
     return null;
   }
 
-  const plan = meta.planId ? await PlanModel.findById(meta.planId) : null;
+  const plan = await resolvePlanFromStripe(stripeSub, meta);
 
-  const accessLevel: PlanAccessLevel =
-    (plan?.accessLevel as PlanAccessLevel | undefined) ?? "basic";
-  const priceMonthly = plan?.priceMonthly ?? 0;
+  if (plan && (!meta.planId || meta.planId !== plan._id.toString())) {
+    try {
+      const { stampStripeSubscriptionPlanMetadata } = await import(
+        "@/lib/stripe/subscription-ops"
+      );
+      await stampStripeSubscriptionPlanMetadata({
+        stripeSubscriptionId: stripeSub.id,
+        planId: plan._id.toString(),
+        accessLevel: plan.accessLevel,
+      });
+    } catch (error) {
+      console.warn("[stripe:webhook] stamp plan metadata", error);
+    }
+  }
+
+  const accessLevel: PlanAccessLevel = plan
+    ? (plan.accessLevel as PlanAccessLevel)
+    : isAccessLevel(meta.accessLevel ?? "")
+      ? (meta.accessLevel as PlanAccessLevel)
+      : "basic";
+  const stripeUnitAmount = stripeSub.items.data[0]?.price?.unit_amount;
+  const priceMonthly =
+    plan?.priceMonthly ??
+    (typeof stripeUnitAmount === "number" ? stripeUnitAmount / 100 : 0);
   const currency =
     plan?.currency ||
     stripeSub.items.data[0]?.price.currency ||
@@ -450,4 +491,52 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
       // the dashboard happy while we incrementally wire more handlers.
       return;
   }
+}
+
+/**
+ * Replay checkout.session.completed locally when the success page
+ * loads before the webhook. Idempotent with the webhook upsert.
+ */
+export async function confirmCheckoutSessionForUser(input: {
+  sessionId: string;
+  clerkUserId: string;
+}): Promise<{
+  ready: boolean;
+  accessLevel: PlanAccessLevel | null;
+  status: SubscriptionStatus | null;
+}> {
+  const stripe = (await import("@/lib/stripe/client")).getStripeClient();
+  const session = await stripe.checkout.sessions.retrieve(input.sessionId);
+  const meta = readMetadata(session.metadata);
+
+  if (
+    meta.subscriberClerkUserId &&
+    meta.subscriberClerkUserId !== input.clerkUserId
+  ) {
+    throw new Error("This checkout session belongs to a different account.");
+  }
+
+  const complete =
+    session.status === "complete" || session.payment_status === "paid";
+  if (!complete) {
+    return { ready: false, accessLevel: null, status: null };
+  }
+
+  const subId = subscriptionIdValue(session.subscription);
+  if (!subId) {
+    return { ready: false, accessLevel: null, status: null };
+  }
+
+  await connectToMongoDB();
+  const stripeSub = await stripe.subscriptions.retrieve(subId);
+  const doc = await upsertSubscriptionFromStripe(stripeSub, meta);
+  if (!doc) {
+    return { ready: false, accessLevel: null, status: null };
+  }
+
+  return {
+    ready: true,
+    accessLevel: doc.accessLevel as PlanAccessLevel,
+    status: doc.status as SubscriptionStatus,
+  };
 }

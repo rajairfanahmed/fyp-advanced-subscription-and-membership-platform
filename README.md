@@ -1,4 +1,4 @@
-# Nexora — Advanced Subscription and Membership Platform
+# Advanced Subscription & Membership Platform
 
 > A full-stack SaaS platform that lets creators publish premium content and monetize it through subscription plans, while giving members a clean place to discover, subscribe and consume that content. Built as a Final Year Project (FYP).
 
@@ -32,7 +32,7 @@
 
 ## Overview
 
-**Nexora** is a multi-role subscription and membership platform inspired by services like Patreon, Substack and OnlyFans (SFW use-case). It allows:
+**Advanced Subscription & Membership Platform** is a multi-role subscription and membership platform inspired by services like Patreon, Substack and OnlyFans (SFW use-case). It allows:
 
 - **Creators** to publish gated content (articles, videos, downloads) and define subscription tiers.
 - **Members / Subscribers** to discover creators, subscribe to plans, consume content and manage their subscriptions.
@@ -223,8 +223,7 @@ src/
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/rajairfanahmed/fyp-nexora-advanced-subscription-membership-platform.git
-cd fyp-nexora-advanced-subscription-membership-platform
+git clone <repository-url>
 ```
 
 ### 2. Install dependencies
@@ -314,7 +313,7 @@ All variables live in `.env.local` (which is git-ignored). A safe template lives
 
 ### MongoDB
 
-- Local: install MongoDB Community and use `mongodb://127.0.0.1:27017/nexora`.
+- Local: install MongoDB Community and use `postgresql://postgres:123@localhost:5432/AdvancedSubscription_MembershipPlatform`.
 - Atlas: create a cluster and copy the connection string.
 
 ---
@@ -368,4 +367,4 @@ This project is part of an academic Final Year Project. All rights reserved by t
 
 ---
 
-> Built with care by **Raja Irfan Ahmed** as part of the Nexora FYP.
+> Built with care by **Raja Irfan Ahmed** as part of the Advanced Subscription & Membership Platform FYP.

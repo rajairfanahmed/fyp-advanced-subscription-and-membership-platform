@@ -53,11 +53,13 @@ export async function getDownloadQuotaSnapshot(args: {
   if (!sub) {
     const tier = TIER_LIMITS.free;
     const now = new Date();
+    const monthlyLimit =
+      tier.monthlyDownloads === UNLIMITED_DOWNLOADS ? null : tier.monthlyDownloads;
     return {
       accessLevel: "free",
-      monthlyLimit: tier.monthlyDownloads,
+      monthlyLimit,
       usedThisPeriod: 0,
-      remaining: 0,
+      remaining: monthlyLimit,
       windowStart: now.toISOString(),
       windowEnd: new Date(now.getTime() + QUOTA_WINDOW_MS).toISOString(),
       blockedByTier: !tier.canDownload,

@@ -46,8 +46,8 @@ export function getStripeClient(): Stripe {
   const client = new Stripe(secret, {
     apiVersion: STRIPE_API_VERSION,
     appInfo: {
-      name: "Nexora",
-      url: "https://nexora.app",
+      name: "Advanced Subscription & Membership Platform",
+      url: "http://localhost:3000",
     },
     typescript: true,
   });

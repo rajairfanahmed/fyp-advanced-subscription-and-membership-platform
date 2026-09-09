@@ -5,6 +5,7 @@ import MainNav from "@/components/navigation/MainNav";
 import Footer from "@/components/layout/Footer";
 import { SmoothScroll } from "@/components/layout/SmoothScroll";
 import { Cursor } from "@/components/ui/Cursor";
+import { siteConfig } from "@/config/site";
 import "./globals.css";
 
 const syne = Syne({
@@ -21,10 +22,10 @@ const manrope = Manrope({
 
 export const metadata: Metadata = {
   title: {
-    default: "Nexora - The Premium Creator Operating System",
-    template: `%s — Nexora`,
+    default: siteConfig.title,
+    template: `%s — ${siteConfig.name}`,
   },
-  description: "Turn Paid Content Into Recurring Membership Revenue.",
+  description: siteConfig.description,
 };
 
 export const viewport: Viewport = {

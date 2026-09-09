@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useUser } from "@clerk/nextjs";
 import { BookOpen, Clock, Download, Lock, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { PublicContent } from "@/lib/mongodb/public-data";
@@ -24,8 +25,22 @@ function matchesTab(content: PublicContent, tab: (typeof TABS)[number]) {
   return content.contentType === "file";
 }
 
-export function PublicCreatorContentTabs({ content }: { content: PublicContent[] }) {
+const TIER_RANK: Record<PublicContent["requiredPlan"], number> = {
+  free: 0,
+  basic: 1,
+  premium: 2,
+};
+
+export function PublicCreatorContentTabs({
+  content,
+  viewerAccessLevel = "free",
+}: {
+  content: PublicContent[];
+  viewerAccessLevel?: PublicContent["requiredPlan"];
+}) {
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("Videos");
+  const { user } = useUser();
+  const isCreator = user?.publicMetadata?.role === "creator";
   const visibleContent = content.filter((item) => matchesTab(item, activeTab));
 
   return (
@@ -54,7 +69,8 @@ export function PublicCreatorContentTabs({ content }: { content: PublicContent[]
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {visibleContent.map((item) => {
-            const locked = item.requiredPlan !== "free";
+            const locked =
+              TIER_RANK[item.requiredPlan] > TIER_RANK[viewerAccessLevel];
             return (
               <div
                 key={item.id}
@@ -99,7 +115,16 @@ export function PublicCreatorContentTabs({ content }: { content: PublicContent[]
                 </div>
                 <div className="p-5">
                   <h3 className="font-bold text-[var(--color-ink)] text-sm mb-3 leading-snug group-hover:text-emerald-700 transition-colors line-clamp-2">
-                    <Link href={`/library/${item.slug || item.id}`} className="hover:text-emerald-700 transition-colors">
+                    <Link
+                      href={
+                        locked || isCreator
+                          ? item.creatorSlug
+                            ? `/creators/${item.creatorSlug}`
+                            : "/creators"
+                          : `/library/${item.slug || item.id}`
+                      }
+                      className="hover:text-emerald-700 transition-colors"
+                    >
                       {item.title}
                     </Link>
                   </h3>

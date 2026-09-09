@@ -1,6 +1,9 @@
-import { Types } from "mongoose";
+import { isRecordId } from "@/lib/db/ids";
 
-import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
+import {
+  assertAccountIsActive,
+  ensureCurrentUserProfile,
+} from "@/lib/auth/profile-sync";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   CreatorProfileModel,
@@ -68,6 +71,7 @@ async function requireCreatorContext(): Promise<CreatorContext> {
   if (!synced || synced.role !== "creator" || synced.isAdmin) {
     throw new Error("Only creator accounts can manage subscription plans.");
   }
+  assertAccountIsActive(synced.profile);
 
   const creatorProfile = await CreatorProfileModel.findOne({ clerkUserId: synced.user.id });
   if (!creatorProfile) {
@@ -285,7 +289,7 @@ export async function updateCreatorPlan(
   await connectToMongoDB();
   const context = await requireCreatorContext();
 
-  if (!Types.ObjectId.isValid(planId)) return null;
+  if (!isRecordId(planId)) return null;
 
   const plan = await PlanModel.findOne({
     _id: planId,
@@ -368,7 +372,7 @@ export async function deleteCreatorPlan(
   await connectToMongoDB();
   const context = await requireCreatorContext();
 
-  if (!Types.ObjectId.isValid(planId)) {
+  if (!isRecordId(planId)) {
     throw new Error("Plan not found.");
   }
 

@@ -40,6 +40,9 @@ export async function POST(req: Request) {
     }
     const message =
       error instanceof Error ? error.message : "Failed to open billing portal.";
+    if (message === "This account is suspended.") {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[billing-portal]", error);
     return NextResponse.json({ error: message }, { status: 400 });
   }

@@ -36,7 +36,7 @@ export const footerLinkGroups: FooterLinkGroup[] = [
     links: [
       { label: "Pricing", href: "/pricing" },
       { label: "Content Library", href: "/content-preview" },
-      { label: "Member Dashboard", href: "/member" },
+      { label: "Member Dashboard", href: "/library" },
     ],
   },
   {
@@ -52,7 +52,6 @@ export const footerLinkGroups: FooterLinkGroup[] = [
     links: [
       { label: "Privacy", href: "/privacy" },
       { label: "Terms", href: "/terms" },
-      { label: "Security", href: "/security" },
     ],
   },
 ];

@@ -2,7 +2,7 @@ import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
 /**
- * Nexora Clerk Middleware — Next.js 15 + Clerk v7
+ * Advanced Subscription & Membership Platform Clerk Middleware — Next.js 15 + Clerk v7
  *
  * Route protection:
  * - Public routes: accessible without auth
@@ -41,10 +41,17 @@ const isPublicRoute = createRouteMatcher([
   // — the wildcard alone doesn't match the parent path.
   "/creators",
   "/creators/(.*)",
+  "/locked-content",
 ]);
 const isAuthPageRoute = createRouteMatcher(["/login(.*)", "/sign-up(.*)"]);
 const isCreatorRoute = createRouteMatcher(["/creator", "/creator/(.*)"]);
 const isAdminRoute = createRouteMatcher(["/admin", "/admin/(.*)"]);
+const isSubscriberWorkspaceRoute = createRouteMatcher([
+  "/library",
+  "/library/(.*)",
+  "/subscription",
+  "/billing",
+]);
 const isApiRoute = createRouteMatcher(["/api/(.*)"]);
 /**
  * Routes the user must still be allowed to hit while maintenance is on,
@@ -75,7 +82,7 @@ async function isMaintenanceEnabled(reqUrl: string): Promise<boolean> {
   try {
     const url = new URL("/api/system/maintenance", reqUrl);
     const res = await fetch(url, {
-      next: { revalidate: 30, tags: ["nexora-maintenance"] },
+      next: { revalidate: 30, tags: ["platform-maintenance"] },
     });
     if (!res.ok) return false;
     const data = (await res.json()) as { enabled?: boolean };
@@ -199,7 +206,7 @@ export default clerkMiddleware(async (auth, req) => {
       if (isApiRoute(req)) {
         return NextResponse.json(
           {
-            error: "Nexora is temporarily offline for maintenance.",
+            error: "Advanced Subscription & Membership Platform is temporarily offline for maintenance.",
             maintenance: true,
           },
           { status: 503, headers: { "Cache-Control": "no-store" } }
@@ -234,6 +241,12 @@ export default clerkMiddleware(async (auth, req) => {
     if (role !== "creator" && !isAdmin) {
       return NextResponse.redirect(new URL("/library", req.url));
     }
+  }
+
+  // Subscriber membership surfaces are for subscribers (and admins
+  // previewing). Creators must not land on library / subscription / billing UI.
+  if (isSubscriberWorkspaceRoute(req) && role === "creator" && !isAdmin) {
+    return NextResponse.redirect(new URL("/creator", req.url));
   }
 
   return NextResponse.next();

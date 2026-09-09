@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import { isRecordId } from "@/lib/db/ids";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminContext } from "@/lib/auth/require-admin";
@@ -32,10 +32,8 @@ type Body = {
  *   { action: "extend", extendDays: number (1..365) }
  *   { action: "changePlan", planId: string }
  *
- * Admin override on a subscription. We also try to mirror the change
- * to Stripe when the row has a `stripeSubscriptionId`; if Stripe fails
- * (e.g. not configured locally) we still apply the local change so the
- * admin can keep operating during incidents.
+ * Admin override on a subscription. Stripe-backed rows fail closed:
+ * if Stripe cannot cancel or resume, the local row is left unchanged.
  */
 export async function PATCH(
   req: NextRequest,
@@ -46,7 +44,7 @@ export async function PATCH(
     await connectToMongoDB();
 
     const { id } = await context.params;
-    if (!Types.ObjectId.isValid(id)) {
+    if (!isRecordId(id)) {
       return NextResponse.json(
         { error: "Invalid subscription id." },
         { status: 400 }
@@ -73,21 +71,33 @@ export async function PATCH(
     let notificationMessage = "";
 
     if (action === "cancel") {
+      if (sub.stripeSubscriptionId) {
+        if (!isStripeConfigured()) {
+          return NextResponse.json(
+            { error: "Stripe is not configured. Local cancel was not saved." },
+            { status: 502 }
+          );
+        }
+        try {
+          const stripe = getStripeClient();
+          await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+        } catch (error) {
+          console.error("[admin:sub:cancel:stripe]", error);
+          return NextResponse.json(
+            {
+              error:
+                "Local cancel was not saved because Stripe could not cancel this subscription. Try again.",
+            },
+            { status: 502 }
+          );
+        }
+      }
       sub.status = "canceled";
       sub.canceledAt = new Date();
       sub.cancelAtPeriodEnd = false;
       notificationTitle = "Subscription cancelled by admin";
       notificationMessage =
-        "Your subscription has been cancelled by Nexora support. Contact us if this was unexpected.";
-
-      if (sub.stripeSubscriptionId && isStripeConfigured()) {
-        try {
-          const stripe = getStripeClient();
-          await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
-        } catch (error) {
-          console.warn("[admin:sub:cancel:stripe]", error);
-        }
-      }
+        "Your subscription has been cancelled by Advanced Subscription & Membership Platform support. Contact us if this was unexpected.";
     } else if (action === "reactivate") {
       if (sub.accessLevel !== "free" && !sub.stripeSubscriptionId) {
         return NextResponse.json(
@@ -98,12 +108,55 @@ export async function PATCH(
           { status: 400 }
         );
       }
+      if (sub.stripeSubscriptionId) {
+        if (!isStripeConfigured()) {
+          return NextResponse.json(
+            { error: "Stripe is not configured. Local reactivate was not saved." },
+            { status: 502 }
+          );
+        }
+        try {
+          const { resumeStripeSubscription } = await import(
+            "@/lib/stripe/subscription-ops"
+          );
+          await resumeStripeSubscription(sub.stripeSubscriptionId);
+        } catch (error) {
+          const resumeMessage =
+            error instanceof Error ? error.message : "";
+          if (resumeMessage === "STRIPE_SUBSCRIPTION_ENDED") {
+            return NextResponse.json(
+              {
+                error:
+                  "This paid subscription has fully ended. The subscriber must check out again.",
+              },
+              { status: 400 }
+            );
+          }
+          if (resumeMessage === "STRIPE_SUBSCRIPTION_NOT_RESUMABLE") {
+            return NextResponse.json(
+              {
+                error:
+                  "Stripe cannot resume this subscription. The subscriber must check out again.",
+              },
+              { status: 400 }
+            );
+          }
+          console.error("[admin:sub:reactivate:stripe]", error);
+          return NextResponse.json(
+            {
+              error:
+                "Local access was not restored because Stripe could not resume this subscription. Try again.",
+            },
+            { status: 502 }
+          );
+        }
+      }
       sub.status = "active";
       sub.canceledAt = null;
       sub.cancelAtPeriodEnd = false;
       notificationTitle = "Subscription reactivated";
       notificationMessage =
-        "Nexora support has reactivated your subscription. Welcome back.";
+        "Advanced Subscription & Membership Platform support has reactivated your subscription. Welcome back.";
     } else if (action === "extend") {
       const days = Number(body.extendDays);
       if (!Number.isFinite(days) || days < 1 || days > 365) {
@@ -115,18 +168,33 @@ export async function PATCH(
       const base = sub.currentPeriodEnd ?? new Date();
       const next = new Date(base.getTime() + days * 24 * 60 * 60 * 1000);
       sub.currentPeriodEnd = next;
-      // Extending implies the user keeps access; bring the row back to
-      // active if it was past_due.
       if (sub.status === "past_due") {
         sub.status = "active";
       }
+      if (sub.stripeSubscriptionId && isStripeConfigured()) {
+        try {
+          const { extendStripeSubscriptionPeriod } = await import(
+            "@/lib/stripe/subscription-ops"
+          );
+          await extendStripeSubscriptionPeriod(sub.stripeSubscriptionId, next);
+        } catch (error) {
+          console.error("[admin:sub:extend:stripe]", error);
+          return NextResponse.json(
+            {
+              error:
+                "Local period was not saved because Stripe could not extend the billing cycle. Try again.",
+            },
+            { status: 502 }
+          );
+        }
+      }
       notificationTitle = "Subscription extended";
-      notificationMessage = `Nexora support extended your access by ${days} day${
+      notificationMessage = `Advanced Subscription & Membership Platform support extended your access by ${days} day${
         days === 1 ? "" : "s"
       }.`;
     } else if (action === "changeplan") {
       const planId = String(body.planId ?? "");
-      if (!Types.ObjectId.isValid(planId)) {
+      if (!isRecordId(planId)) {
         return NextResponse.json(
           { error: "`planId` is required and must be valid." },
           { status: 400 }
@@ -149,8 +217,49 @@ export async function PATCH(
       sub.accessLevel = plan.accessLevel as PlanAccessLevel;
       sub.priceMonthly = plan.priceMonthly;
       sub.currency = plan.currency || sub.currency;
+
+      if (plan.accessLevel === "free") {
+        if (sub.stripeSubscriptionId && isStripeConfigured()) {
+          try {
+            const { cancelStripeSubscriptionNow } = await import(
+              "@/lib/stripe/subscription-ops"
+            );
+            await cancelStripeSubscriptionNow(sub.stripeSubscriptionId);
+          } catch (error) {
+            console.warn("[admin:sub:changePlan:cancel-stripe]", error);
+          }
+        }
+        sub.stripeSubscriptionId = "";
+        sub.priceMonthly = 0;
+      } else if (sub.stripeSubscriptionId && plan.stripePriceId && isStripeConfigured()) {
+        try {
+          const { updateStripeSubscriptionPrice } = await import(
+            "@/lib/stripe/subscription-ops"
+          );
+          await updateStripeSubscriptionPrice({
+            stripeSubscriptionId: sub.stripeSubscriptionId,
+            stripePriceId: plan.stripePriceId,
+            metadata: {
+              subscriberClerkUserId: sub.subscriberClerkUserId,
+              creatorClerkUserId: sub.creatorClerkUserId,
+              planId: plan._id.toString(),
+              accessLevel: plan.accessLevel,
+            },
+          });
+        } catch (error) {
+          console.error("[admin:sub:changePlan:stripe]", error);
+          return NextResponse.json(
+            {
+              error:
+                "Stripe did not accept the plan change. Local access was not updated.",
+            },
+            { status: 502 }
+          );
+        }
+      }
+
       notificationTitle = "Plan updated";
-      notificationMessage = `Nexora support changed your plan to ${plan.name}.`;
+      notificationMessage = `Advanced Subscription & Membership Platform support changed your plan to ${plan.name}.`;
     } else {
       return NextResponse.json(
         {

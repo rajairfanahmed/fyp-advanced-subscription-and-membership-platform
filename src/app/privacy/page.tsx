@@ -13,7 +13,7 @@ const PRIVACY_SECTIONS = [
   {
     id: "overview",
     title: "1. Overview",
-    content: "Nexora is committed to protecting the privacy of creators, subscribers, and all platform visitors. This Privacy Policy explains how we collect, use, and safeguard personal information across our membership infrastructure.",
+    content: "Advanced Subscription & Membership Platform is committed to protecting the privacy of creators, subscribers, and all platform visitors. This Privacy Policy explains how we collect, use, and safeguard personal information across our membership infrastructure.",
   },
   {
     id: "information-we-collect",
@@ -28,7 +28,7 @@ const PRIVACY_SECTIONS = [
   {
     id: "subscription-billing",
     title: "4. Subscription And Billing Data",
-    content: "Nexora uses secure third-party payment processors (Stripe). We do not store raw credit card numbers. We only retain subscription status, plan levels, billing history, and renewal dates to manage content access.",
+    content: "Advanced Subscription & Membership Platform uses secure third-party payment processors (Stripe). We do not store raw credit card numbers. We only retain subscription status, plan levels, billing history, and renewal dates to manage content access.",
   },
   {
     id: "content-access",
@@ -43,7 +43,7 @@ const PRIVACY_SECTIONS = [
   {
     id: "cookies-usage",
     title: "7. Cookies And Product Usage",
-    content: "We use essential cookies to maintain your login session and remember your preferences. We also collect anonymized product usage data to identify bugs and improve the overall Nexora platform experience.",
+    content: "We use essential cookies to maintain your login session and remember your preferences. We also collect anonymized product usage data to identify bugs and improve the overall Advanced Subscription & Membership Platform platform experience.",
   },
   {
     id: "data-security",
@@ -71,7 +71,7 @@ const PRINCIPLES = [
   {
     icon: <CreditCard className="w-6 h-6 text-sky-500" />,
     title: "Secure Billing",
-    description: "Payment details will be handled through Stripe later. Nexora should not store raw card details.",
+    description: "Payment details are handled through Stripe. Advanced Subscription & Membership Platform does not store raw card details.",
   },
   {
     icon: <Eye className="w-6 h-6 text-violet-500" />,
@@ -132,7 +132,7 @@ export default function PrivacyPage() {
 
             <MotionItem>
               <p className="text-lg md:text-xl text-[var(--color-muted)] leading-relaxed font-medium max-w-2xl">
-                How Nexora will explain account data, subscription data, content access data, and platform usage data.
+                How Advanced Subscription & Membership Platform handles account data, subscription data, content access data, and platform usage data.
               </p>
             </MotionItem>
           </MotionReveal>
@@ -200,9 +200,9 @@ export default function PrivacyPage() {
                     <ShieldAlert className="w-5 h-5 text-amber-600" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-amber-900 mb-2">Privacy Review Required</h4>
-                    <p className="text-amber-800 text-sm font-medium leading-relaxed">
-                      This page contains placeholder privacy content for product development. Final privacy text should be reviewed before production launch.
+                    <h4 className="font-bold text-slate-900 mb-2">About this policy</h4>
+                    <p className="text-slate-700 text-sm font-medium leading-relaxed">
+                      This policy describes how Advanced Subscription & Membership Platform uses Clerk for accounts, Stripe for billing, and stored membership data to enforce content access. It is product documentation, not legal advice.
                     </p>
                   </div>
                 </div>

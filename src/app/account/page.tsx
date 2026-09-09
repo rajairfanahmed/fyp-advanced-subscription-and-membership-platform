@@ -14,7 +14,7 @@ const NOTIFICATION_OPTIONS: Array<{ key: keyof NotificationPreferences; label: s
   { key: "productUpdates", label: "Product and account updates" },
   { key: "contentDigests", label: "New article and video digests" },
   { key: "downloadAlerts", label: "PDF and ZIP resource alerts" },
-  { key: "renewalReminders", label: "Membership renewal reminders" },
+  { key: "renewalReminders", label: "Billing notices" },
 ];
 
 const DEFAULT_NOTIFICATIONS: NotificationPreferences = {
@@ -287,6 +287,7 @@ export default function AccountPage() {
                       </div>
                     </div>
 
+                    {profile?.role !== "creator" && (
                     <div className="space-y-3">
                       <label className="text-sm font-bold text-slate-700">Preferred Content Types</label>
                       <div className="flex flex-wrap gap-3">
@@ -303,6 +304,7 @@ export default function AccountPage() {
                         ))}
                       </div>
                     </div>
+                    )}
 
                     <div className="pt-4 flex justify-end">
                       <Button type="submit" variant="primary" disabled={isSaving}>
@@ -335,6 +337,7 @@ export default function AccountPage() {
 
             <div className="lg:col-span-1 space-y-6">
               <MotionReveal className="space-y-6">
+                {profile?.role !== "creator" ? (
                 <div className="bg-white border border-slate-200 rounded-[2rem] p-8 shadow-sm">
                   <div className="flex items-center gap-3 mb-6">
                     <SlidersHorizontal className="w-5 h-5 text-[var(--color-ink)]" />
@@ -369,6 +372,20 @@ export default function AccountPage() {
                     </div>
                   </div>
                 </div>
+                ) : (
+                <div className="bg-white border border-slate-200 rounded-[2rem] p-8 shadow-sm">
+                  <div className="flex items-center gap-3 mb-4">
+                    <SlidersHorizontal className="w-5 h-5 text-[var(--color-ink)]" />
+                    <h3 className="text-lg font-black font-display text-[var(--color-ink)]">Notifications</h3>
+                  </div>
+                  <p className="text-sm text-slate-600 font-medium leading-relaxed mb-6">
+                    Creator workspace alerts (new subscribers, renewals, revenue) are managed in Creator Settings.
+                  </p>
+                  <Button variant="outline" className="w-full text-xs" href="/creator/settings">
+                    Open creator settings
+                  </Button>
+                </div>
+                )}
               </MotionReveal>
 
               <MotionReveal>
@@ -397,11 +414,21 @@ export default function AccountPage() {
                   <p className="text-sm text-red-800 font-medium leading-relaxed mb-2">
                     Delete your account permanently. This will:
                   </p>
+                  {profile?.role === "creator" ? (
+                  <ul className="text-xs text-red-800 font-medium leading-relaxed mb-6 list-disc pl-5 space-y-1">
+                    <li>Cancel every active subscription on Stripe.</li>
+                    <li>Archive your Stripe products and prices.</li>
+                    <li>Delete every piece of content and its files in Cloudflare R2.</li>
+                    <li>Delete every plan you&apos;ve created.</li>
+                    <li>Erase your creator profile and Clerk login.</li>
+                  </ul>
+                  ) : (
                   <ul className="text-xs text-red-800 font-medium leading-relaxed mb-6 list-disc pl-5 space-y-1">
                     <li>Cancel every active subscription on Stripe.</li>
                     <li>Erase your profile, avatar, and notification preferences.</li>
                     <li>Remove your Clerk login.</li>
                   </ul>
+                  )}
                   <Button
                     variant="outline"
                     className="w-full bg-white text-red-700 border-red-300 hover:bg-red-100"
@@ -431,7 +458,9 @@ export default function AccountPage() {
               <h2 className="text-xl font-black font-display text-slate-950">Delete account permanently?</h2>
             </div>
             <p className="text-sm font-medium text-slate-700 leading-relaxed mb-2">
-              This action is irreversible. Your subscriptions will be cancelled, your profile data will be removed, and your Clerk login will be deleted.
+              {profile?.role === "creator"
+                ? "This will cancel every Stripe subscription tied to your workspace, archive your Stripe products, delete every content row and file, delete every plan, and remove your Clerk login. The action is irreversible."
+                : "This action is irreversible. Your subscriptions will be cancelled, your profile data will be removed, and your Clerk login will be deleted."}
             </p>
             <p className="text-sm font-medium text-slate-700 leading-relaxed mb-4">
               Type <span className="font-black text-red-700">DELETE</span> to confirm:

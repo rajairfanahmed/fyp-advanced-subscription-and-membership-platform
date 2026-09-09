@@ -20,7 +20,7 @@ const BENEFITS = [
   "Browse premium content.",
   "Create subscription plans.",
   "Lock videos, articles, PDFs, and ZIP files.",
-  "Prepare for recurring billing later."
+  "Subscribe to creators with Stripe recurring billing.",
 ];
 
 export default function SignUpPage() {
@@ -202,13 +202,12 @@ export default function SignUpPage() {
 
     try {
       // Store selected role in sessionStorage before OAuth redirect.
-      // TODO: After Google signup, apply role from sessionStorage to Clerk metadata
-      // via a webhook or post-signup API call. For now defaults to subscriber on /library.
+      // The SSO callback POSTs /api/auth/set-role to apply it to Clerk metadata.
       sessionStorage.setItem(
-        "nexora_signup_role",
+        "platform_signup_role",
         isAdminEmail ? "subscriber" : accountType
       );
-      sessionStorage.setItem("nexora_oauth_intent", "signup");
+      sessionStorage.setItem("platform_oauth_intent", "signup");
 
       await signUp.authenticateWithRedirect({
         strategy: "oauth_google",
@@ -241,7 +240,7 @@ export default function SignUpPage() {
               <div className="mb-8">
                 <Badge variant="emerald" className="mb-4">Get Started</Badge>
                 <h1 className="text-4xl md:text-5xl font-black font-display text-[var(--color-ink)] mb-4 tracking-tight">
-                  Create Your Nexora Account
+                  Create Your Advanced Subscription & Membership Platform Account
                 </h1>
                 <p className="text-lg text-[var(--color-muted)] font-medium leading-relaxed">
                   Start building or accessing a paid content membership experience.
@@ -434,7 +433,7 @@ export default function SignUpPage() {
             <MotionItem className="bg-[var(--color-ink)] text-white rounded-[2rem] p-8 md:p-10 relative overflow-hidden shadow-2xl shadow-slate-900/20 hidden lg:block">
               <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/20 blur-3xl pointer-events-none" />
 
-              <h3 className="text-2xl font-black font-display mb-8 relative z-10">Why join Nexora?</h3>
+              <h3 className="text-2xl font-black font-display mb-8 relative z-10">Why join Advanced Subscription & Membership Platform?</h3>
 
               <ul className="space-y-6 relative z-10">
                 {BENEFITS.map((benefit, i) => (
@@ -449,7 +448,7 @@ export default function SignUpPage() {
 
               <div className="mt-12 pt-8 border-t border-white/10 relative z-10">
                 <p className="text-sm font-medium text-slate-400 leading-relaxed">
-                  &ldquo;Nexora provides the perfect clean slate to build a real subscription business without the messy plugins.&rdquo;
+                  &ldquo;Advanced Subscription & Membership Platform provides the perfect clean slate to build a real subscription business without the messy plugins.&rdquo;
                 </p>
               </div>
             </MotionItem>

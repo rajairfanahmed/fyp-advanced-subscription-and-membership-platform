@@ -1,16 +1,17 @@
 import { NextResponse } from "next/server";
 
-import { recordContentView } from "@/lib/mongodb/content";
+import {
+  getGuardedPublishedContent,
+  recordContentView,
+} from "@/lib/mongodb/content";
 
 /**
  * POST /api/content/[contentId]/view
  *
- * Public endpoint. Bumps `Content.viewsCount` and the owning creator's
- * `CreatorProfile.totalViews`. Anyone hitting a published content page
- * counts; signed-in vs anonymous is intentionally not tracked here.
- *
- * Throttling is left to the caller — the library detail page only
- * fires this once per mount so a quick refresh doesn't spam.
+ * Bumps `Content.viewsCount` and the owning creator's
+ * `CreatorProfile.totalViews` only when the viewer is allowed to
+ * see the item (free content, or a matching paid membership). Locked
+ * paywall hits do not inflate analytics.
  */
 export async function POST(
   _req: Request,
@@ -18,11 +19,22 @@ export async function POST(
 ) {
   try {
     const { contentId } = await params;
+    const guarded = await getGuardedPublishedContent(contentId);
+    if (!guarded) {
+      return NextResponse.json({ error: "Content not found." }, { status: 404 });
+    }
+    if (!guarded.accessGranted) {
+      return NextResponse.json(
+        { ok: true, viewsCount: guarded.viewsCount, counted: false },
+        { status: 200 }
+      );
+    }
+
     const result = await recordContentView(contentId);
     if (!result) {
       return NextResponse.json({ error: "Content not found." }, { status: 404 });
     }
-    return NextResponse.json(result, { status: 200 });
+    return NextResponse.json({ ...result, counted: true }, { status: 200 });
   } catch (error) {
     console.error("[content:view]", error);
     return NextResponse.json(

@@ -1,4 +1,7 @@
-import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
+import {
+  assertAccountIsActive,
+  ensureCurrentUserProfile,
+} from "@/lib/auth/profile-sync";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import { SubscriptionModel } from "@/lib/mongodb/models";
 import { getStripeClient } from "@/lib/stripe/client";
@@ -18,6 +21,7 @@ export async function createBillingPortalSessionForCurrentUser(
   if (!synced) {
     throw new Error("Sign in to open the billing portal.");
   }
+  assertAccountIsActive(synced.profile);
 
   await connectToMongoDB();
 

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Check, X, Minus, ChevronDown } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@clerk/nextjs";
 import type { PublicPlansSummary } from "@/lib/mongodb/public-data";
 
 type PricingPlanCard = {
@@ -70,7 +71,7 @@ const FALLBACK_PRICING: PricingPlanCard[] = [
     features: [
       "Every tier of content from the creator.",
       "Unlimited file downloads.",
-      "Priority support and templates.",
+      "Every file download from that creator.",
     ],
     buttonText: "Choose Premium",
     variant: "premium",
@@ -99,36 +100,37 @@ const COMPARISON_FEATURES = [
   { name: "Premium-tier video & articles", free: "Not included", basic: "Not included", premium: "Included" },
   { name: "File downloads / creator / month", free: "5", basic: "30", premium: "Unlimited" },
   { name: "PDF, ZIP, and RAR downloads", free: "Limited", basic: "Included", premium: "Included" },
-  { name: "Renewal reminders", free: "Not included", basic: "Included", premium: "Included" },
-  { name: "Priority support", free: "Not included", basic: "Not included", premium: "Included" },
+  { name: "In-app billing notices", free: "Not included", basic: "Included", premium: "Included" },
+  { name: "Unlimited downloads", free: "Not included", basic: "Not included", premium: "Included" },
 ];
 
 const WHO_ITS_FOR = [
   {
     plan: "Free",
-    title: "Free is for testing.",
-    description: "Perfect for exploring the platform, setting up your first public posts, and seeing how the membership tools work without committing any money.",
+    title: "Free is for previewing a creator.",
+    description: "Follow a creator with no card to open their free videos, articles, and files. Paid posts stay locked until you Subscribe on that creator.",
   },
   {
     plan: "Basic",
-    title: "Basic is for first paid memberships.",
-    description: "Ideal for creators transitioning from free content to paid access, focusing on articles, PDF guides, and downloadable ZIP files.",
+    title: "Basic is the first paid membership.",
+    description: "Subscribe to a creator's Basic plan to unlock that creator's Basic videos, articles, and downloadable files.",
   },
   {
     plan: "Premium",
-    title: "Premium is for serious recurring revenue.",
-    description: "Built for dedicated educators and creators who want to offer locked video courses, robust member segmentation, and deep analytics.",
+    title: "Premium is full access to that creator.",
+    description: "Subscribe to a creator's Premium plan for their full catalog, including unlimited downloads from that creator.",
   },
 ];
 
 const FAQS = [
   {
     question: "Can I start without payment?",
-    answer: "Yes. The Free plan lets creators explore the platform before paid billing is added.",
+    answer: "Yes. Follow a creator for free with no card. Paid Basic and Premium plans use Stripe checkout.",
   },
   {
     question: "Can I upgrade later?",
-    answer: "Yes. Creators can move from Free to Basic or Premium when they are ready to monetise more content.",
+    answer:
+      "Yes. On a creator's profile, Follow free first, then use Subscribe on Basic or Premium to unlock that creator's paid content.",
   },
   {
     question: "Will Stripe be used for payments?",
@@ -140,11 +142,11 @@ const FAQS = [
   },
   {
     question: "Is this only for video content?",
-    answer: "No. Nexora supports videos, articles, downloadable files, templates, and private resources.",
+    answer: "No. Advanced Subscription & Membership Platform supports videos, articles, downloadable files, templates, and private resources.",
   },
   {
     question: "Will subscribers get a dashboard?",
-    answer: "Subscribers will get a clean content library and account pages. Creators and admins will use dashboards.",
+    answer: "Subscribers get a content library, subscription page, billing page, and account page. Creators and admins use dashboards.",
   },
 ];
 
@@ -190,8 +192,10 @@ function FAQItem({ question, answer }: { question: string; answer: string }) {
 }
 
 export default function PricingPage() {
+  const { isSignedIn } = useAuth();
   const [summary, setSummary] = useState<PublicPlansSummary | null>(null);
   const [isLoadingSummary, setIsLoadingSummary] = useState(true);
+  const startHref = isSignedIn ? "/creators" : "/sign-up";
 
   useEffect(() => {
     let cancelled = false;
@@ -300,7 +304,7 @@ export default function PricingPage() {
                       : "About prices."}
                 </span>{" "}
                 {isLoadingSummary ? (
-                  <>Pulling the latest plan rows from creators on Nexora.</>
+                  <>Pulling the latest plan rows from creators on Advanced Subscription & Membership Platform.</>
                 ) : showLivePricingNote ? (
                   <>
                     Each tier shows the cheapest active plan available on the
@@ -318,8 +322,8 @@ export default function PricingPage() {
             </MotionItem>
 
             <MotionItem className="flex flex-col sm:flex-row justify-center gap-4 mt-8">
-              <Button variant="primary" size="lg" href="/sign-up" className="w-full sm:w-auto min-w-[200px]">
-                Start Free
+              <Button variant="primary" size="lg" href={startHref} className="w-full sm:w-auto min-w-[200px]">
+                {isSignedIn ? "Browse creators" : "Start Free"}
               </Button>
               <Button variant="secondary" size="lg" href="#compare" onClick={scrollToCompare} className="w-full sm:w-auto min-w-[200px]">
                 Compare Plans
@@ -335,7 +339,6 @@ export default function PricingPage() {
           <MotionReveal className="grid lg:grid-cols-3 gap-8 items-start" staggerChildren={0.15}>
             {PLANS.map((plan, i) => {
               const isRecommended = plan.variant === "recommended";
-              const planQuery = `?plan=${plan.name.toLowerCase()}`;
               return (
                 <MotionItem key={i} className={cn(
                   "relative bg-white rounded-[2rem] border overflow-hidden flex flex-col transition-all duration-300",
@@ -380,9 +383,13 @@ export default function PricingPage() {
                     <Button
                       variant={isRecommended ? "primary" : "secondary"}
                       className="w-full mt-auto"
-                      href={plan.name === "Free" ? "/sign-up" : `/creators${planQuery}`}
+                      href={isSignedIn ? "/creators" : plan.name === "Free" ? "/sign-up" : "/creators"}
                     >
-                      {plan.name === "Free" ? plan.buttonText : "Browse Creators"}
+                      {isSignedIn
+                        ? "Browse Creators"
+                        : plan.name === "Free"
+                          ? plan.buttonText
+                          : "Browse Creators"}
                     </Button>
                   </div>
                 </MotionItem>
@@ -512,8 +519,8 @@ export default function PricingPage() {
               </p>
             </MotionItem>
             <MotionItem className="flex flex-col sm:flex-row justify-center items-center gap-4">
-              <Button variant="primary" size="lg" href="/sign-up" className="w-full sm:w-auto min-w-[200px]">
-                Start Free
+              <Button variant="primary" size="lg" href={startHref} className="w-full sm:w-auto min-w-[200px]">
+                {isSignedIn ? "Browse creators" : "Start Free"}
               </Button>
               <Button variant="secondary" size="lg" href="/content-preview" className="w-full sm:w-auto min-w-[200px]">
                 Explore Content

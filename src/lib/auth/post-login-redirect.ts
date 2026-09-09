@@ -1,5 +1,5 @@
 /** Survives OAuth round-trip (Clerk drops query string on /sso-callback). */
-export const POST_AUTH_RETURN_KEY = "nexora_post_auth_return";
+export const POST_AUTH_RETURN_KEY = "platform_post_auth_return";
 
 function isSafeInternalPath(raw: string): boolean {
   if (!raw.startsWith("/") || raw.startsWith("//")) return false;

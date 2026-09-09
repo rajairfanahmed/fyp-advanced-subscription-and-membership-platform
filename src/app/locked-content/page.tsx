@@ -40,7 +40,7 @@ export default function LockedContentPage() {
 
             <MotionItem>
               <p className="text-lg md:text-xl text-[var(--color-muted)] font-medium max-w-2xl mx-auto mb-12 leading-relaxed">
-                Upgrade your membership to access premium videos, downloads, templates, and private resources.
+                Upgrade on that creator&apos;s profile. Follow free only unlocks Free content. Subscribe to Basic or Premium to unlock their paid videos, articles, and files.
               </p>
             </MotionItem>
 
@@ -49,9 +49,9 @@ export default function LockedContentPage() {
               
               {/* Current Plan */}
               <div className="w-full sm:w-64 bg-slate-50 rounded-2xl border border-slate-100 p-6 flex flex-col items-center">
-                <span className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-widest">Current Plan</span>
-                <Badge variant="emerald" className="mb-3">Basic</Badge>
-                <span className="text-slate-600 font-medium">Limited Access</span>
+                <span className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-widest">Current access</span>
+                <Badge variant="emerald" className="mb-3">This creator</Badge>
+                <span className="text-slate-600 font-medium">Free or a lower tier</span>
               </div>
 
               {/* Arrow Indicator */}
@@ -63,10 +63,10 @@ export default function LockedContentPage() {
               {/* Required Plan */}
               <div className="w-full sm:w-64 bg-[var(--color-ink)] rounded-2xl border border-slate-800 p-6 flex flex-col items-center relative overflow-hidden shadow-lg shadow-slate-900/10">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-sky-500/20 blur-2xl" />
-                <span className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-widest relative z-10">Required Plan</span>
-                <Badge variant="sky" className="mb-3 relative z-10">Premium</Badge>
+                <span className="text-sm font-bold text-slate-400 mb-2 uppercase tracking-widest relative z-10">Needed</span>
+                <Badge variant="sky" className="mb-3 relative z-10">Basic or Premium</Badge>
                 <span className="text-white font-medium relative z-10 flex items-center gap-1">
-                  <Zap className="w-4 h-4 text-amber-400" /> Full Access
+                  <Zap className="w-4 h-4 text-amber-400" /> Subscribe on their profile
                 </span>
               </div>
 
@@ -74,13 +74,12 @@ export default function LockedContentPage() {
 
             {/* What Unlocks */}
             <MotionItem className="max-w-md mx-auto text-left bg-slate-50 rounded-2xl border border-slate-100 p-8 mb-12">
-              <h3 className="font-bold text-[var(--color-ink)] mb-4 text-center">What unlocks with Premium?</h3>
+              <h3 className="font-bold text-[var(--color-ink)] mb-4 text-center">What a paid plan unlocks</h3>
               <ul className="space-y-3">
                 {[
-                  "All premium video masterclasses",
-                  "Downloadable ZIP templates & kits",
-                  "Direct community Q&A access",
-                  "Monthly private live streams"
+                  "That creator's Basic and Premium videos and articles",
+                  "PDF, ZIP, and other file downloads in the paid tier",
+                  "Access for the rest of the billing period if you cancel later",
                 ].map((feature, i) => (
                   <li key={i} className="flex items-center gap-3">
                     <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
@@ -92,8 +91,8 @@ export default function LockedContentPage() {
 
             {/* CTAs */}
             <MotionItem className="flex flex-col sm:flex-row justify-center items-center gap-4">
-              <Button variant="primary" size="lg" href="/pricing" className="w-full sm:w-auto min-w-[200px]">
-                Upgrade Plan
+              <Button variant="primary" size="lg" href="/creators" className="w-full sm:w-auto min-w-[200px]">
+                Browse Creators
               </Button>
               <Button variant="secondary" size="lg" href="/library" className="w-full sm:w-auto min-w-[200px]">
                 Back To Library

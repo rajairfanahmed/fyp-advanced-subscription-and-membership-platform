@@ -32,11 +32,15 @@ export async function PATCH(
     }
     return NextResponse.json({ plan });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to update plan.";
+    if (
+      message === "Only creator accounts can manage subscription plans." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[plans:patch]", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to update plan." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
@@ -72,10 +76,14 @@ export async function DELETE(
     }
     return NextResponse.json({ plan });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to delete plan.";
+    if (
+      message === "Only creator accounts can manage subscription plans." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[plans:delete]", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to delete plan." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

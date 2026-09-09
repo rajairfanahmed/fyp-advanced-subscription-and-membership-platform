@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import { isRecordId } from "@/lib/db/ids";
 
 import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
 import { isAdminEmail } from "@/lib/auth/roles";
@@ -246,7 +246,7 @@ export async function markCurrentUserNotificationRead(
   await connectToMongoDB();
   const synced = await ensureCurrentUserProfile();
   if (!synced) return null;
-  if (!Types.ObjectId.isValid(notificationId)) return null;
+  if (!isRecordId(notificationId)) return null;
 
   const doc = await NotificationModel.findOneAndUpdate(
     {
@@ -286,7 +286,7 @@ export async function deleteCurrentUserNotification(
   await connectToMongoDB();
   const synced = await ensureCurrentUserProfile();
   if (!synced) return false;
-  if (!Types.ObjectId.isValid(notificationId)) return false;
+  if (!isRecordId(notificationId)) return false;
 
   const result = await NotificationModel.deleteOne({
     _id: notificationId,

@@ -47,8 +47,8 @@ export async function GET(
  *
  * Suspend or restore a user account. The auth/identity layer (Clerk)
  * isn't touched here — only our `UserProfile.accountStatus`. Suspended
- * users are still able to sign in via Clerk; downstream feature gates
- * (content, subscribe, etc.) check `accountStatus`.
+ * users can still sign in, but checkout, subscribe, download, uploads,
+ * and creator mutations reject the account until it is restored.
  */
 export async function PATCH(
   req: NextRequest,

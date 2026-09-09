@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { AdminShell } from "@/components/dashboard/AdminShell";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { MotionItem, MotionReveal } from "@/components/ui/MotionReveal";
@@ -9,7 +10,6 @@ import { Badge } from "@/components/ui/Badge";
 import {
   Search,
   Filter,
-  MoreHorizontal,
   UserCheck,
   TrendingUp,
   UserMinus,
@@ -282,21 +282,15 @@ export default function AdminSubscribersPage() {
                               </td>
                               <td className="p-8 text-right">
                                 <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-9 px-4 text-xs bg-white rounded-xl"
-                                    disabled
-                                    title="Subscriber detail page lands in a follow-up"
-                                  >
-                                    View
-                                  </Button>
-                                  <button
-                                    className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all"
-                                    disabled
-                                  >
-                                    <MoreHorizontal className="w-4 h-4" />
-                                  </button>
+                                  <Link href={`/admin/users/${encodeURIComponent(row.subscriberClerkUserId)}`}>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-9 px-4 text-xs bg-white rounded-xl"
+                                    >
+                                      View
+                                    </Button>
+                                  </Link>
                                 </div>
                               </td>
                             </tr>
@@ -344,6 +338,15 @@ export default function AdminSubscribersPage() {
                               </span>
                             </div>
                           </div>
+                          <Link href={`/admin/users/${encodeURIComponent(row.subscriberClerkUserId)}`}>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="w-full h-11 text-xs bg-white rounded-xl"
+                            >
+                              View account
+                            </Button>
+                          </Link>
                         </div>
                       ))}
                     </div>

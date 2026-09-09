@@ -34,7 +34,7 @@ function ResetPasswordForm() {
       return;
     }
 
-    const savedEmail = sessionStorage.getItem("nexora_reset_email");
+    const savedEmail = sessionStorage.getItem("platform_reset_email");
     if (savedEmail && !queryEmail) {
       setEmail(savedEmail);
       setEmailIsReadonly(false);
@@ -99,7 +99,7 @@ function ResetPasswordForm() {
       if (result.status === "complete") {
         // Do NOT auto-login after password reset.
         // Always redirect to /login so user logs in with new password.
-        sessionStorage.removeItem("nexora_reset_email");
+        sessionStorage.removeItem("platform_reset_email");
         window.location.href = "/login?reset=success";
       } else {
         setError("Your session could not be completed. Please try again.");

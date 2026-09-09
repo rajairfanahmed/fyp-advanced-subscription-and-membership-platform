@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { ACCOUNT_SUSPENDED_MESSAGE } from "@/lib/auth/profile-sync";
 import { createCheckoutSessionForPlan } from "@/lib/stripe/checkout";
 import { StripeNotConfiguredError } from "@/lib/stripe/client";
 
@@ -37,14 +38,14 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { url } = await createCheckoutSessionForPlan({
+    const result = await createCheckoutSessionForPlan({
       planId,
       successUrl:
         typeof body.successUrl === "string" ? body.successUrl : undefined,
       cancelUrl:
         typeof body.cancelUrl === "string" ? body.cancelUrl : undefined,
     });
-    return NextResponse.json({ url }, { status: 200 });
+    return NextResponse.json(result, { status: 200 });
   } catch (error) {
     if (error instanceof StripeNotConfiguredError) {
       console.error("[checkout]", error);
@@ -55,6 +56,12 @@ export async function POST(req: Request) {
     }
     const message =
       error instanceof Error ? error.message : "Failed to start checkout.";
+    if (
+      message === "Only subscriber accounts can subscribe to creators." ||
+      message === ACCOUNT_SUSPENDED_MESSAGE
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[checkout]", error);
     return NextResponse.json({ error: message }, { status: 400 });
   }

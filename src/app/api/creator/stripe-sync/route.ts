@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
-import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
+import {
+  ACCOUNT_SUSPENDED_MESSAGE,
+  assertAccountIsActive,
+  ensureCurrentUserProfile,
+} from "@/lib/auth/profile-sync";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import { isStripeConfigured, StripeNotConfiguredError } from "@/lib/stripe/client";
 import { backfillCreatorPlanStripePrices } from "@/lib/stripe/plan-sync";
@@ -24,6 +28,12 @@ export async function POST() {
       { error: "Only creator accounts can sync plans to Stripe." },
       { status: 403 }
     );
+  }
+  try {
+    assertAccountIsActive(synced.profile);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : ACCOUNT_SUSPENDED_MESSAGE;
+    return NextResponse.json({ error: message }, { status: 403 });
   }
 
   if (!isStripeConfigured()) {

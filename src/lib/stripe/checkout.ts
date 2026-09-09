@@ -1,6 +1,9 @@
 import type Stripe from "stripe";
 
-import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
+import {
+  assertAccountIsActive,
+  ensureCurrentUserProfile,
+} from "@/lib/auth/profile-sync";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   CreatorProfileModel,
@@ -15,6 +18,10 @@ type CreateCheckoutInput = {
   successUrl?: string;
   cancelUrl?: string;
 };
+
+export type CreateCheckoutResult =
+  | { url: string; applied?: false }
+  | { url: null; applied: true };
 
 /**
  * Resolve (or create) the Stripe Customer for the signed-in user.
@@ -74,13 +81,14 @@ async function ensureStripeCustomer(args: {
  */
 export async function createCheckoutSessionForPlan(
   input: CreateCheckoutInput
-): Promise<{ url: string }> {
+): Promise<CreateCheckoutResult> {
   const stripe = getStripeClient();
 
   const synced = await ensureCurrentUserProfile();
   if (!synced) {
     throw new Error("Sign in to start checkout.");
   }
+  assertAccountIsActive(synced.profile);
   if (synced.role !== "subscriber" || synced.isAdmin) {
     throw new Error("Only subscriber accounts can subscribe to creators.");
   }
@@ -125,6 +133,57 @@ export async function createCheckoutSessionForPlan(
     throw new Error("This plan's creator profile is missing.");
   }
 
+  const existingSub = await SubscriptionModel.findOne({
+    subscriberClerkUserId: synced.user.id,
+    creatorClerkUserId: plan.creatorClerkUserId,
+  });
+
+  if (
+    existingSub &&
+    existingSub.planId?.toString() === plan._id.toString() &&
+    existingSub.stripeSubscriptionId &&
+    (existingSub.status === "active" ||
+      existingSub.status === "trialing" ||
+      existingSub.status === "past_due") &&
+    !existingSub.cancelAtPeriodEnd
+  ) {
+    throw new Error("You already have this plan.");
+  }
+
+  // Same creator, already paying Stripe: swap the Price in place so we
+  // never open a second subscription (double billing).
+  if (
+    existingSub?.stripeSubscriptionId &&
+    (existingSub.status === "active" ||
+      existingSub.status === "trialing" ||
+      existingSub.status === "past_due") &&
+    plan.stripePriceId
+  ) {
+    const { updateStripeSubscriptionPrice } = await import(
+      "@/lib/stripe/subscription-ops"
+    );
+    const { upsertSubscriptionFromStripe } = await import("@/lib/stripe/webhook");
+    const stripeSub = await updateStripeSubscriptionPrice({
+      stripeSubscriptionId: existingSub.stripeSubscriptionId,
+      stripePriceId: plan.stripePriceId,
+      metadata: {
+        subscriberClerkUserId: synced.user.id,
+        creatorClerkUserId: plan.creatorClerkUserId,
+        planId: plan._id.toString(),
+        accessLevel: plan.accessLevel,
+      },
+    });
+    if (stripeSub) {
+      await upsertSubscriptionFromStripe(stripeSub, {
+        subscriberClerkUserId: synced.user.id,
+        creatorClerkUserId: plan.creatorClerkUserId,
+        planId: plan._id.toString(),
+        accessLevel: plan.accessLevel,
+      });
+      return { url: null, applied: true };
+    }
+  }
+
   const email =
     synced.user.primaryEmailAddress?.emailAddress ??
     synced.user.emailAddresses?.[0]?.emailAddress ??
@@ -150,7 +209,8 @@ export async function createCheckoutSessionForPlan(
     input.successUrl ||
     `${baseUrl}/subscription?checkout=success&session_id={CHECKOUT_SESSION_ID}`;
   const cancelUrl =
-    input.cancelUrl || `${baseUrl}/pricing?checkout=cancelled`;
+    input.cancelUrl ||
+    `${baseUrl}/creators/${creator.creatorSlug}?checkout=cancelled`;
 
   const session = await stripe.checkout.sessions.create({
     mode: "subscription",

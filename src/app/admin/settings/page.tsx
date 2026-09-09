@@ -21,8 +21,8 @@ import type {
 } from "@/types/admin-stats";
 
 const DEFAULTS: AdminPlatformSettingsResponse = {
-  platformDisplayName: "Nexora",
-  supportEmail: "support@nexora.com",
+  platformDisplayName: "Advanced Subscription & Membership Platform",
+  supportEmail: "support@example.com",
   defaultSubscriberTier: "free",
   defaultCreatorStatus: "review",
   platformCurrency: "usd",
@@ -226,19 +226,16 @@ export default function AdminSettingsPage() {
                         Default Subscriber Tier
                       </label>
                       <select
-                        value={settings.defaultSubscriberTier}
-                        onChange={(e) =>
-                          update(
-                            "defaultSubscriberTier",
-                            e.target.value as AdminPlatformSettingsResponse["defaultSubscriberTier"]
-                          )
-                        }
-                        disabled={isLoading || isSaving}
-                        className="w-full px-5 py-4 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-bold text-slate-900 cursor-pointer disabled:opacity-60"
+                        value="free"
+                        disabled
+                        title="Members always start without a paid plan."
+                        className="w-full px-5 py-4 bg-slate-50/50 border border-slate-100 rounded-2xl font-bold text-slate-900 cursor-not-allowed opacity-60"
                       >
-                        <option value="free">Free Plan (auto-grant)</option>
-                        <option value="pending">Pending Approval</option>
+                        <option value="free">Free (no paid access until Follow or Subscribe)</option>
                       </select>
+                      <p className="text-xs font-medium text-slate-500 leading-relaxed">
+                        Stored only. New members never receive a paid plan automatically — they Follow free or Subscribe per creator.
+                      </p>
                     </div>
                     <div className="space-y-3">
                       <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
@@ -258,6 +255,9 @@ export default function AdminSettingsPage() {
                         <option value="review">Review Needed</option>
                         <option value="active">Active</option>
                       </select>
+                      <p className="text-xs font-medium text-slate-500 leading-relaxed">
+                        Review Needed starts new creators as draft (not listed publicly). Active publishes their profile immediately.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -286,19 +286,17 @@ export default function AdminSettingsPage() {
                       </label>
                       <select
                         value={settings.platformCurrency}
-                        onChange={(e) =>
-                          update(
-                            "platformCurrency",
-                            e.target.value as AdminPlatformSettingsResponse["platformCurrency"]
-                          )
-                        }
-                        disabled={isLoading || isSaving}
-                        className="w-full px-5 py-4 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-bold text-slate-900 cursor-pointer disabled:opacity-60"
+                        disabled
+                        title="Checkout uses each plan's currency."
+                        className="w-full px-5 py-4 bg-slate-50/50 border border-slate-100 rounded-2xl font-bold text-slate-900 cursor-not-allowed opacity-60"
                       >
                         <option value="usd">USD ($)</option>
                         <option value="eur">EUR (€)</option>
                         <option value="gbp">GBP (£)</option>
                       </select>
+                      <p className="text-xs font-medium text-slate-500 leading-relaxed">
+                        Display only. Checkout charges in each plan&apos;s own currency.
+                      </p>
                     </div>
                     <div className="space-y-3">
                       <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
@@ -306,18 +304,16 @@ export default function AdminSettingsPage() {
                       </label>
                       <select
                         value={settings.defaultBillingCycle}
-                        onChange={(e) =>
-                          update(
-                            "defaultBillingCycle",
-                            e.target.value as AdminPlatformSettingsResponse["defaultBillingCycle"]
-                          )
-                        }
-                        disabled={isLoading || isSaving}
-                        className="w-full px-5 py-4 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-bold text-slate-900 cursor-pointer disabled:opacity-60"
+                        disabled
+                        title="Plans currently bill monthly."
+                        className="w-full px-5 py-4 bg-slate-50/50 border border-slate-100 rounded-2xl font-bold text-slate-900 cursor-not-allowed opacity-60"
                       >
                         <option value="monthly">Monthly</option>
                         <option value="annually">Annually</option>
                       </select>
+                      <p className="text-xs font-medium text-slate-500 leading-relaxed">
+                        Display only. Live plans bill monthly through Stripe.
+                      </p>
                     </div>
                   </div>
                 </div>
@@ -343,19 +339,17 @@ export default function AdminSettingsPage() {
                     </label>
                     <select
                       value={String(settings.renewalReminderLeadDays)}
-                      onChange={(e) =>
-                        update(
-                          "renewalReminderLeadDays",
-                          Number(e.target.value)
-                        )
-                      }
-                      disabled={isLoading || isSaving}
-                      className="w-full px-4 py-3 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 transition-all font-bold text-slate-900 text-xs cursor-pointer disabled:opacity-60"
+                      disabled
+                      title="Lead days are stored. Notices are sent when billing events happen."
+                      className="w-full px-4 py-3 bg-slate-50/50 border border-slate-100 rounded-2xl font-bold text-slate-900 text-xs cursor-not-allowed opacity-60"
                     >
                       <option value="7">7 days before</option>
                       <option value="3">3 days before</option>
                       <option value="1">1 day before</option>
                     </select>
+                    <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
+                      Stored only. Billing notices are created in-app when Stripe reports a charge or cancellation — there is no scheduled reminder email.
+                    </p>
                   </div>
                   <div className="space-y-3">
                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -363,18 +357,16 @@ export default function AdminSettingsPage() {
                     </label>
                     <select
                       value={settings.failureAlertCadence}
-                      onChange={(e) =>
-                        update(
-                          "failureAlertCadence",
-                          e.target.value as AdminPlatformSettingsResponse["failureAlertCadence"]
-                        )
-                      }
-                      disabled={isLoading || isSaving}
-                      className="w-full px-4 py-3 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 transition-all font-bold text-slate-900 text-xs cursor-pointer disabled:opacity-60"
+                      disabled
+                      title="Failed-payment notices are sent when Stripe reports them."
+                      className="w-full px-4 py-3 bg-slate-50/50 border border-slate-100 rounded-2xl font-bold text-slate-900 text-xs cursor-not-allowed opacity-60"
                     >
-                      <option value="immediate">Immediate (1 hour)</option>
+                      <option value="immediate">When Stripe reports a failure</option>
                       <option value="daily">Daily Digest</option>
                     </select>
+                    <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
+                      Stored only. Failed-payment notices are created in-app from Stripe webhooks.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -417,8 +409,7 @@ export default function AdminSettingsPage() {
                   <h3 className="text-lg font-black font-display text-red-900">Maintenance Mode</h3>
                 </div>
                 <p className="text-[13px] font-medium text-red-800 leading-relaxed mb-6 opacity-80">
-                  When enabled, this flag is recorded in the platform settings document.
-                  UI guards using this flag to lock down sessions can be added in a follow-up.
+                  When enabled, non-admin visitors are redirected to the maintenance page and non-admin APIs return 503. Admins stay signed in so they can turn this off.
                 </p>
                 <Button
                   type="button"

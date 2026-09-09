@@ -56,11 +56,11 @@ export function ContentCard({
         <p className="text-slate-600 text-sm mb-6 line-clamp-3 flex-1">{description}</p>
         
         {isLocked ? (
-           <Button variant="outline" className="w-full text-indigo-600 border-indigo-200 hover:bg-indigo-50" href="/pricing">
+           <Button variant="outline" className="w-full text-indigo-600 border-indigo-200 hover:bg-indigo-50" href="/creators">
              Unlock Access
            </Button>
         ) : (
-           <Button variant="secondary" className="w-full" href="/auth/register">
+           <Button variant="secondary" className="w-full" href="/library">
              View Content
            </Button>
         )}

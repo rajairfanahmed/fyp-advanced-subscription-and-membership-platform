@@ -23,7 +23,7 @@ const CATEGORIES = [
   {
     icon: <LockKeyhole className="w-6 h-6 text-sky-500" />,
     title: "Subscription Plans",
-    description: "Understand Free, Basic, and Premium plans, upgrades, downgrades, and cancellations.",
+    description: "Understand Free, Basic, and Premium plans, upgrades, and cancellations.",
   },
   {
     icon: <CreditCard className="w-6 h-6 text-violet-500" />,
@@ -54,11 +54,11 @@ const FAQS = [
   },
   {
     question: "Can subscribers access videos and files?",
-    answer: "Yes. Nexora supports video content, articles, PDF files, ZIP files, templates, and private resources.",
+    answer: "Yes. Advanced Subscription & Membership Platform supports video content, articles, PDF files, ZIP files, templates, and private resources.",
   },
   {
     question: "Will Stripe handle payments?",
-    answer: "Yes. Stripe test mode will be connected later for recurring subscription billing.",
+    answer: "Yes. Stripe is live for recurring billing: checkout, the billing portal, invoices, refunds, and webhook-driven membership status.",
   },
   {
     question: "Can creators publish different content types?",
@@ -70,15 +70,15 @@ const FAQS = [
   },
   {
     question: "Can creators track engagement?",
-    answer: "Yes. Creator analytics will later track active subscribers, revenue, cancellations, content views, and engagement.",
+    answer: "Yes. Creators can track active subscribers, revenue, cancellations, content views, and engagement from their analytics, revenue, and subscribers dashboards.",
   },
   {
     question: "Can admins manage the whole platform?",
-    answer: "Yes. Admin pages will later manage users, creators, subscribers, plans, content, subscriptions, payments, notifications, and analytics.",
+    answer: "Yes. Admins can manage users, creators, subscribers, plans, content, subscriptions, payments, notifications, and analytics.",
   },
   {
-    question: "Can plans be upgraded or downgraded?",
-    answer: "Yes. The system will later support plan upgrades, downgrades, cancellations, and renewal status updates.",
+    question: "Can plans be upgraded?",
+    answer: "Yes. Open a creator's profile and Subscribe to Basic or Premium. Follow free only unlocks that creator's Free content. There is no in-place downgrade — cancel at period end, then Subscribe to a lower tier if you still want access. Paid cancellations keep access until the billing period ends.",
   },
 ];
 
@@ -86,7 +86,7 @@ const WORKFLOW = [
   "Choose the area you need help with.",
   "Review the matching help topic.",
   "Contact support if the answer is not enough.",
-  "Track updates through account notifications later.",
+  "Track updates through account notifications.",
 ];
 
 function FAQItem({ question, answer }: { question: string; answer: string }) {
@@ -175,17 +175,23 @@ export default function SupportPage() {
         <Container>
           <MotionReveal className="grid md:grid-cols-2 lg:grid-cols-3 gap-6" staggerChildren={0.1}>
             {CATEGORIES.map((category, i) => (
-              <MotionItem key={i} className="bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 p-8 flex flex-col group">
-                <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mb-6 group-hover:scale-110 group-hover:-rotate-3 transition-transform duration-500">
-                  {category.icon}
-                </div>
-                <h3 className="text-xl font-bold font-display text-[var(--color-ink)] mb-3">{category.title}</h3>
-                <p className="text-[var(--color-muted)] font-medium leading-relaxed mb-6 flex-1">
-                  {category.description}
-                </p>
-                <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm group-hover:gap-3 transition-all">
-                  Browse topics <ArrowRightIcon className="w-4 h-4" />
-                </div>
+              <MotionItem key={i}>
+                <button
+                  type="button"
+                  onClick={scrollToFaq}
+                  className="w-full text-left bg-white rounded-3xl border border-slate-200 shadow-sm hover:shadow-xl transition-all duration-300 p-8 flex flex-col group"
+                >
+                  <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center mb-6 group-hover:scale-110 group-hover:-rotate-3 transition-transform duration-500">
+                    {category.icon}
+                  </div>
+                  <h3 className="text-xl font-bold font-display text-[var(--color-ink)] mb-3">{category.title}</h3>
+                  <p className="text-[var(--color-muted)] font-medium leading-relaxed mb-6 flex-1">
+                    {category.description}
+                  </p>
+                  <div className="flex items-center gap-2 text-emerald-600 font-bold text-sm group-hover:gap-3 transition-all">
+                    Browse topics <ArrowRightIcon className="w-4 h-4" />
+                  </div>
+                </button>
               </MotionItem>
             ))}
           </MotionReveal>
@@ -254,7 +260,7 @@ export default function SupportPage() {
             </MotionItem>
             <MotionItem>
               <p className="text-xl text-[var(--color-muted)] mx-auto mb-10 leading-relaxed font-medium">
-                Contact the Nexora team with your account, billing, subscription, or content access question.
+                Contact the Advanced Subscription & Membership Platform team with your account, billing, subscription, or content access question.
               </p>
             </MotionItem>
             <MotionItem>

@@ -2,7 +2,6 @@
 
 import React from "react";
 import { useEffect, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { DashboardPreviewCard } from "@/components/cards/DashboardPreviewCard";
@@ -40,10 +39,7 @@ const CONTENT_TYPES = [
   { name: "Private resources", icon: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" },
 ];
 
-function publicContentToHomeCard(
-  content: PublicContent,
-  unlockHref: string
-): HomeContentCard {
+function publicContentToHomeCard(content: PublicContent): HomeContentCard {
   const type =
     content.contentType === "video"
       ? "Video"
@@ -52,6 +48,9 @@ function publicContentToHomeCard(
         : ((content.fileSubtype || "pdf").toUpperCase() as "PDF" | "ZIP" | "RAR");
 
   const isLocked = content.requiredPlan !== "free";
+  const creatorHref = content.creatorSlug
+    ? `/creators/${content.creatorSlug}`
+    : "/creators";
 
   return {
     title: content.title,
@@ -66,21 +65,14 @@ function publicContentToHomeCard(
           : "Free",
     isLocked,
     thumbnailUrl: content.thumbnailUrl,
-    href: isLocked ? unlockHref : `/library/${content.slug || content.id}`,
-    unlockHref,
+    href: creatorHref,
+    unlockHref: creatorHref,
   };
 }
 
 export default function HomePage() {
-  const { isSignedIn } = useAuth();
   const [homepageContent, setHomepageContent] = useState<HomeContentCard[]>([]);
   const [contentLoading, setContentLoading] = useState(true);
-
-  // Signed-out viewers go to /login (so the redirect_url round-trip
-  // brings them back). Signed-in viewers go straight to /pricing.
-  const unlockHref = isSignedIn
-    ? "/pricing"
-    : "/login?redirect_url=%2Flibrary";
 
   useEffect(() => {
     let cancelled = false;
@@ -94,7 +86,7 @@ export default function HomePage() {
           setHomepageContent(
             (data.content ?? [])
               .slice(0, 6)
-              .map((c) => publicContentToHomeCard(c, unlockHref))
+              .map((c) => publicContentToHomeCard(c))
           );
         }
       } catch {
@@ -108,7 +100,7 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [unlockHref]);
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen">
@@ -139,7 +131,7 @@ export default function HomePage() {
 
               <MotionItem>
                 <p className="text-lg md:text-xl text-[var(--color-muted)] mb-10 leading-relaxed font-medium max-w-xl">
-                  Nexora helps creators sell premium videos, articles, and downloadable files through subscription plans, controlled access, and creator-first revenue tools.
+                  Advanced Subscription & Membership Platform helps creators sell premium videos, articles, and downloadable files through subscription plans, controlled access, and creator-first revenue tools.
                 </p>
               </MotionItem>
 
@@ -171,7 +163,7 @@ export default function HomePage() {
               Built for independent creators, educators, and teams building recurring revenue — not placeholder brands.
             </p>
             <p className="text-sm font-medium text-slate-600 text-center max-w-xl mx-auto">
-              Browse real published content below as creators go live on Nexora.
+              Browse real published content below as creators go live on Advanced Subscription & Membership Platform.
             </p>
           </Container>
         </MotionReveal>
@@ -331,7 +323,7 @@ export default function HomePage() {
           </MotionReveal>
 
           <MotionReveal className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" staggerChildren={0.1}>
-             {['Plan based access', 'Renewal reminders', 'Subscriber activity', 'Revenue insights'].map((feature, i) => (
+             {['Plan based access', 'In-app billing notices', 'Subscriber activity', 'Revenue insights'].map((feature, i) => (
                <MotionItem key={i} className="bg-white p-8 rounded-3xl border border-[var(--color-border)] shadow-[var(--shadow-soft)] hover:-translate-y-1 transition-transform duration-300">
                   <div className="w-3 h-3 rounded-full bg-[var(--color-emerald)] mb-6 shadow-[0_0_12px_var(--color-emerald)]"></div>
                   <h3 className="text-xl font-bold font-display text-[var(--color-ink)]">{feature}</h3>
@@ -355,7 +347,7 @@ export default function HomePage() {
               Build a Membership Experience Your Audience Wants To Pay For
             </h2>
             <p className="text-xl text-[var(--color-muted)] max-w-2xl mx-auto mb-12 leading-relaxed font-medium">
-              Start with plans, content access, and a polished subscriber experience. Add billing, automation, and analytics as the platform grows.
+              Start with plans, content access, and a polished subscriber experience. Manage billing, subscriptions, and creator analytics from one platform.
             </p>
             <div className="flex flex-col sm:flex-row justify-center items-center gap-4">
               <Button variant="primary" size="lg" href="/sign-up" className="w-full sm:w-auto min-w-[200px]">

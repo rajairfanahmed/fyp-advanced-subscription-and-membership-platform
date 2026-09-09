@@ -475,10 +475,9 @@ export default function AdminSubscriptionsPage() {
                   <Button
                     variant="outline"
                     className="w-full h-14 bg-white text-[10px] font-black uppercase tracking-widest text-red-600 hover:bg-red-50 border-red-100 rounded-2xl transition-all"
-                    disabled
-                    title="Dunning retries are part of the Stripe phase"
+                    href="/admin/payments"
                   >
-                    Retry Failed Charges
+                    Open failed charges
                   </Button>
                 </div>
               </div>

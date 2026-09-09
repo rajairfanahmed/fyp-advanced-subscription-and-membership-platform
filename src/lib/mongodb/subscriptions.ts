@@ -1,6 +1,9 @@
-import { Types } from "mongoose";
+import { isRecordId } from "@/lib/db/ids";
 
-import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
+import {
+  assertAccountIsActive,
+  ensureCurrentUserProfile,
+} from "@/lib/auth/profile-sync";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   CreatorProfileModel,
@@ -106,7 +109,7 @@ export async function serializeSubscription(
       : null,
     creatorClerkUserId: doc.creatorClerkUserId,
     creatorProfileId: doc.creatorProfileId ? doc.creatorProfileId.toString() : null,
-    creatorName: creatorProfile?.creatorName ?? "Nexora Creator",
+    creatorName: creatorProfile?.creatorName ?? "Advanced Subscription & Membership Platform Creator",
     creatorSlug: creatorProfile?.creatorSlug ?? "",
     creatorAvatarUrl: creatorProfile?.avatarUrl ?? "",
     planId: doc.planId ? doc.planId.toString() : null,
@@ -115,7 +118,7 @@ export async function serializeSubscription(
     status: doc.status as SubscriptionStatus,
     billingCycle: "monthly",
     currency: doc.currency,
-    priceMonthly: doc.priceMonthly,
+    priceMonthly: Number(doc.priceMonthly) || 0,
     startedAt: doc.startedAt
       ? doc.startedAt.toISOString()
       : doc.createdAt.toISOString(),
@@ -186,6 +189,7 @@ export async function subscribeCurrentUserToFreeTier(input: {
   if (!synced) {
     throw new Error("Sign in to subscribe to a creator.");
   }
+  assertAccountIsActive(synced.profile);
   if (synced.role !== "subscriber" || synced.isAdmin) {
     throw new Error("Only subscriber accounts can subscribe to creators.");
   }
@@ -197,6 +201,22 @@ export async function subscribeCurrentUserToFreeTier(input: {
 
   if (creator.clerkUserId === synced.user.id) {
     throw new Error("You cannot subscribe to yourself.");
+  }
+
+  const existing = await SubscriptionModel.findOne({
+    subscriberClerkUserId: synced.user.id,
+    creatorClerkUserId: creator.clerkUserId,
+  });
+  if (
+    existing &&
+    existing.accessLevel !== "free" &&
+    (existing.status === "active" ||
+      existing.status === "trialing" ||
+      existing.status === "past_due")
+  ) {
+    throw new Error(
+      "You already have a paid membership with this creator. Use Subscribe on Basic or Premium to change plans."
+    );
   }
 
   // Pick the creator's active free plan if one exists; otherwise we
@@ -223,6 +243,7 @@ export async function subscribeCurrentUserToFreeTier(input: {
       priceMonthly: 0,
       canceledAt: null,
       cancelAtPeriodEnd: false,
+      stripeSubscriptionId: "",
     },
     $setOnInsert: {
       subscriberClerkUserId: synced.user.id,
@@ -281,8 +302,10 @@ export async function subscribeCurrentUserToFreeTier(input: {
 }
 
 /**
- * Cancel my own subscription (soft — sets status to "canceled" and
- * stamps canceledAt). Only the owning subscriber can cancel.
+ * Cancel my own subscription.
+ * Free memberships end immediately.
+ * Paid memberships cancel at the end of the Stripe billing period so
+ * access continues until then (and Stripe stops charging after).
  */
 export async function cancelCurrentUserSubscription(
   subscriptionId: string
@@ -290,22 +313,40 @@ export async function cancelCurrentUserSubscription(
   await connectToMongoDB();
   const synced = await ensureCurrentUserProfile();
   if (!synced) return null;
-  if (!Types.ObjectId.isValid(subscriptionId)) return null;
+  assertAccountIsActive(synced.profile);
+  if (!isRecordId(subscriptionId)) return null;
 
-  const doc = await SubscriptionModel.findOneAndUpdate(
-    {
-      _id: subscriptionId,
-      subscriberClerkUserId: synced.user.id,
-    },
-    {
-      $set: {
-        status: "canceled",
-        canceledAt: new Date(),
-        cancelAtPeriodEnd: false,
-      },
-    },
-    { returnDocument: "after" }
-  );
+  const existing = await SubscriptionModel.findOne({
+    _id: subscriptionId,
+    subscriberClerkUserId: synced.user.id,
+  });
+  if (!existing) return null;
+
+  const isPaid = existing.accessLevel !== "free" && Boolean(existing.stripeSubscriptionId);
+
+  if (isPaid) {
+    try {
+      const { cancelStripeSubscriptionAtPeriodEnd } = await import(
+        "@/lib/stripe/subscription-ops"
+      );
+      await cancelStripeSubscriptionAtPeriodEnd(existing.stripeSubscriptionId);
+    } catch (error) {
+      console.error("[subscriptions:cancel:stripe]", error);
+      throw new Error(
+        "Stripe could not schedule the cancellation. Try the billing portal or contact support."
+      );
+    }
+    existing.cancelAtPeriodEnd = true;
+    existing.canceledAt = null;
+    await existing.save();
+  } else {
+    existing.status = "canceled";
+    existing.canceledAt = new Date();
+    existing.cancelAtPeriodEnd = false;
+    await existing.save();
+  }
+
+  const doc = existing;
 
   if (doc) {
     try {
@@ -320,16 +361,20 @@ export async function cancelCurrentUserSubscription(
       await notifyIfAllowed({
         recipientClerkUserId: doc.subscriberClerkUserId,
         category: "renewal",
-        title: `Subscription canceled`,
-        message: `Your subscription to ${creatorName} has been canceled. You can resubscribe anytime.`,
+        title: isPaid ? "Cancellation scheduled" : "Subscription canceled",
+        message: isPaid
+          ? `Your paid membership with ${creatorName} will end at the close of the current billing period. You keep access until then.`
+          : `Your subscription to ${creatorName} has been canceled. You can resubscribe anytime.`,
         link: creatorSlug ? `/creators/${creatorSlug}` : "/subscription",
         metadata: { event: "subscription.canceled", accessLevel: doc.accessLevel },
       });
       await notifyIfAllowed({
         recipientClerkUserId: doc.creatorClerkUserId,
         category: "creator",
-        title: "Subscriber canceled",
-        message: `A ${doc.accessLevel} subscriber has canceled their subscription.`,
+        title: isPaid ? "Subscriber scheduled cancellation" : "Subscriber canceled",
+        message: isPaid
+          ? `A ${doc.accessLevel} subscriber scheduled cancellation at period end.`
+          : `A ${doc.accessLevel} subscriber has canceled their subscription.`,
         link: "/creator/subscribers",
         creatorWorkspaceAlertKey: "renewalSummary",
         metadata: { event: "subscription.canceled", accessLevel: doc.accessLevel },
@@ -339,7 +384,7 @@ export async function cancelCurrentUserSubscription(
     }
   }
 
-  return doc ? serializeSubscription(doc) : null;
+  return serializeSubscription(doc);
 }
 
 /**
@@ -352,7 +397,8 @@ export async function reactivateCurrentUserSubscription(
   await connectToMongoDB();
   const synced = await ensureCurrentUserProfile();
   if (!synced) return null;
-  if (!Types.ObjectId.isValid(subscriptionId)) return null;
+  assertAccountIsActive(synced.profile);
+  if (!isRecordId(subscriptionId)) return null;
 
   const existing = await SubscriptionModel.findOne({
     _id: subscriptionId,

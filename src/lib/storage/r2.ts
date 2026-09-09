@@ -1,6 +1,6 @@
 import "server-only";
 
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { randomUUID } from "crypto";
 import path from "path";
 import type { Readable } from "stream";
@@ -354,4 +354,47 @@ export async function deleteFromCloudflareR2(key: string) {
   );
 
   return { key, deleted: true };
+}
+
+export type R2DownloadObject = {
+  webStream: ReadableStream;
+  contentType: string;
+  contentLength: number | undefined;
+};
+
+/**
+ * Stream an object from R2 for a forced-attachment download. Callers
+ * must never redirect the browser at the public URL for PDFs — the
+ * browser would open the file and the subscriber could save it again
+ * without another quota hit.
+ */
+export async function getObjectFromCloudflareR2(key: string): Promise<R2DownloadObject> {
+  if (!key || key.includes("..") || key.startsWith("/")) {
+    throw new Error("A valid storage object key is required.");
+  }
+
+  const config = getR2Config();
+  const result = await getCloudflareR2Client().send(
+    new GetObjectCommand({
+      Bucket: config.bucketName,
+      Key: key,
+    })
+  );
+
+  if (!result.Body) {
+    throw new Error("File is empty.");
+  }
+
+  const body = result.Body as {
+    transformToWebStream?: () => ReadableStream;
+  };
+  if (typeof body.transformToWebStream !== "function") {
+    throw new Error("Unable to stream this file.");
+  }
+
+  return {
+    webStream: body.transformToWebStream(),
+    contentType: result.ContentType || "application/octet-stream",
+    contentLength: result.ContentLength,
+  };
 }

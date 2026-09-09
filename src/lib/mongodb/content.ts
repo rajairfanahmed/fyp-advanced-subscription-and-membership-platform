@@ -1,7 +1,10 @@
-import { Types } from "mongoose";
+import { isRecordId } from "@/lib/db/ids";
 import { auth } from "@clerk/nextjs/server";
 
-import { ensureCurrentUserProfile } from "@/lib/auth/profile-sync";
+import {
+  assertAccountIsActive,
+  ensureCurrentUserProfile,
+} from "@/lib/auth/profile-sync";
 import { isAdminEmail } from "@/lib/auth/roles";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
@@ -245,6 +248,7 @@ async function requireCreatorContext(): Promise<CreatorContext> {
   if (!synced || synced.role !== "creator" || synced.isAdmin) {
     throw new Error("Only creator accounts can manage creator content.");
   }
+  assertAccountIsActive(synced.profile);
 
   const creatorProfile = await CreatorProfileModel.findOne({ clerkUserId: synced.user.id });
   if (!creatorProfile) {
@@ -263,7 +267,7 @@ export async function serializeContent(content: ContentDocument): Promise<Conten
     id: content._id.toString(),
     creatorClerkUserId: content.creatorClerkUserId,
     creatorProfileId: content.creatorProfileId?.toString() ?? null,
-    creatorName: creatorProfile?.creatorName ?? "Nexora Creator",
+    creatorName: creatorProfile?.creatorName ?? "Advanced Subscription & Membership Platform Creator",
     creatorSlug: creatorProfile?.creatorSlug ?? "creator",
     title: content.title,
     slug: content.slug,
@@ -289,6 +293,29 @@ export async function serializeContent(content: ContentDocument): Promise<Conten
     fileSizeLabel: content.fileSizeLabel,
     createdAt: content.createdAt.toISOString(),
     updatedAt: content.updatedAt.toISOString(),
+  };
+}
+
+/** Blank paid media so list APIs cannot leak Basic/Premium URLs. */
+function redactPaidMedia(serialized: ContentResponse): ContentResponse {
+  return {
+    ...serialized,
+    videoUrl: "",
+    videoKey: "",
+    externalVideoUrl: "",
+    fileUrl: "",
+    fileKey: "",
+    articleBody: "",
+  };
+}
+
+/** Never hand the public R2 file URL to the library client. */
+function hideDirectFileDownload(serialized: ContentResponse): ContentResponse {
+  if (serialized.contentType !== "file") return serialized;
+  return {
+    ...serialized,
+    fileUrl: "",
+    fileKey: "",
   };
 }
 
@@ -328,12 +355,20 @@ export async function listPublishedContent(options?: { viewerClerkUserId?: strin
         viewerIsAdmin,
         subRanks,
       });
-      return { ...serialized, accessGranted };
+      return {
+        ...(accessGranted
+          ? hideDirectFileDownload(serialized)
+          : redactPaidMedia(serialized)),
+        accessGranted,
+      };
     })
   );
 }
 
-export async function listPublishedContentByCreatorSlug(creatorSlug: string) {
+export async function listPublishedContentByCreatorSlug(
+  creatorSlug: string,
+  options?: { viewerClerkUserId?: string | null }
+) {
   await connectToMongoDB();
   const creatorProfile = await CreatorProfileModel.findOne({ creatorSlug: slugify(creatorSlug) });
   if (!creatorProfile) return [];
@@ -342,13 +377,44 @@ export async function listPublishedContentByCreatorSlug(creatorSlug: string) {
     creatorClerkUserId: creatorProfile.clerkUserId,
     status: "published",
   }).sort({ publishedAt: -1, createdAt: -1 });
-  return Promise.all(content.map(serializeContent));
+
+  const viewer = options?.viewerClerkUserId;
+  let viewerIsAdmin = false;
+  let subRanks = new Map<string, number>();
+  if (viewer) {
+    const profile = await UserProfileModel.findOne({ clerkUserId: viewer });
+    if (profile?.email && isAdminEmail(profile.email)) {
+      viewerIsAdmin = true;
+    } else {
+      subRanks = await subscriberMaxAccessRankByCreator(viewer);
+    }
+  }
+
+  return Promise.all(
+    content.map(async (doc) => {
+      const serialized = await serializeContent(doc);
+      const requiredPlan = doc.requiredPlan as RequiredPlan;
+      const accessGranted = computeLibraryListAccess({
+        requiredPlan,
+        creatorClerkUserId: doc.creatorClerkUserId,
+        viewerClerkUserId: viewer,
+        viewerIsAdmin,
+        subRanks,
+      });
+      return {
+        ...(accessGranted
+          ? hideDirectFileDownload(serialized)
+          : redactPaidMedia(serialized)),
+        accessGranted,
+      };
+    })
+  );
 }
 
 export async function getContentForCurrentCreator(contentId: string) {
   await connectToMongoDB();
   const context = await requireCreatorContext();
-  const query = Types.ObjectId.isValid(contentId)
+  const query = isRecordId(contentId)
     ? { _id: contentId, creatorClerkUserId: context.clerkUserId }
     : { slug: slugify(contentId), creatorClerkUserId: context.clerkUserId };
   const content = await ContentModel.findOne(query);
@@ -357,7 +423,7 @@ export async function getContentForCurrentCreator(contentId: string) {
 
 export async function getPublishedContentByIdOrSlug(contentId: string) {
   await connectToMongoDB();
-  const query: Record<string, unknown> = Types.ObjectId.isValid(contentId)
+  const query: Record<string, unknown> = isRecordId(contentId)
     ? { _id: contentId, status: "published" }
     : { slug: slugify(contentId), status: "published" };
   const content = await ContentModel.findOne(query);
@@ -390,7 +456,7 @@ export async function getGuardedPublishedContent(
   contentId: string
 ): Promise<GuardedContentResponse | null> {
   await connectToMongoDB();
-  const query: Record<string, unknown> = Types.ObjectId.isValid(contentId)
+  const query: Record<string, unknown> = isRecordId(contentId)
     ? { _id: contentId, status: "published" }
     : { slug: slugify(contentId), status: "published" };
   const content = await ContentModel.findOne(query);
@@ -431,20 +497,14 @@ export async function getGuardedPublishedContent(
 
   if (!accessGranted) {
     return {
-      ...serialized,
-      videoUrl: "",
-      videoKey: "",
-      externalVideoUrl: "",
-      fileUrl: "",
-      fileKey: "",
-      articleBody: "",
+      ...redactPaidMedia(serialized),
       accessGranted: false,
       requiredAccessLevel: requiredPlan,
     };
   }
 
   return {
-    ...serialized,
+    ...hideDirectFileDownload(serialized),
     accessGranted: true,
     requiredAccessLevel: requiredPlan,
   };
@@ -773,7 +833,7 @@ export async function recordContentView(contentId: string): Promise<{
   viewsCount: number;
 } | null> {
   await connectToMongoDB();
-  const query: Record<string, unknown> = Types.ObjectId.isValid(contentId)
+  const query: Record<string, unknown> = isRecordId(contentId)
     ? { _id: contentId, status: "published" }
     : { slug: slugify(contentId), status: "published" };
 
@@ -798,10 +858,9 @@ export async function recordContentView(contentId: string): Promise<{
 
 /**
  * Increment Content.downloadsCount. Caller MUST have already passed
- * the access guard (the route enforces that). Returns the resolved
- * file URL so the client can redirect after the count is logged. If
- * the file is empty (locked or missing), returns `null` and the
- * caller should surface an upgrade UI.
+ * the access guard (the route enforces that). Returns storage keys so
+ * the download route can stream the file as an attachment. If the
+ * file is empty (locked or missing), returns `null`.
  */
 export async function recordContentDownload(
   contentId: string
@@ -809,10 +868,12 @@ export async function recordContentDownload(
   ok: true;
   downloadsCount: number;
   fileUrl: string;
+  fileKey: string;
   fileName: string;
+  fileSubtype: string;
 } | null> {
   await connectToMongoDB();
-  const query: Record<string, unknown> = Types.ObjectId.isValid(contentId)
+  const query: Record<string, unknown> = isRecordId(contentId)
     ? { _id: contentId, status: "published", contentType: "file" }
     : { slug: slugify(contentId), status: "published", contentType: "file" };
 
@@ -822,12 +883,15 @@ export async function recordContentDownload(
     { returnDocument: "after" }
   );
   if (!content) return null;
+  if (!content.fileKey && !content.fileUrl) return null;
 
   return {
     ok: true,
     downloadsCount: content.downloadsCount,
     fileUrl: content.fileUrl,
+    fileKey: content.fileKey,
     fileName: content.title,
+    fileSubtype: content.fileSubtype || "",
   };
 }
 
@@ -843,7 +907,7 @@ export async function recordWatchCompletionEvent(input: {
   await connectToMongoDB();
   const percent = Math.max(0, Math.min(100, Number(input.percent) || 0));
 
-  const query: Record<string, unknown> = Types.ObjectId.isValid(input.contentId)
+  const query: Record<string, unknown> = isRecordId(input.contentId)
     ? { _id: input.contentId, status: "published", contentType: "video" }
     : { slug: slugify(input.contentId), status: "published", contentType: "video" };
 

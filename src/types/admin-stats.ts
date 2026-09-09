@@ -221,6 +221,7 @@ export type AdminPaymentRow = {
   amountCents: number;
   currency: string;
   status: PaymentStatus;
+  accessLevel: PlanAccessLevel | null;
   paymentMethodLabel: string;
   paidAt: string | null;
   createdAt: string;

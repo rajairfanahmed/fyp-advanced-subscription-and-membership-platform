@@ -39,7 +39,7 @@ export async function PATCH(request: Request) {
       // Drop the middleware's cached maintenance flag so the new
       // value applies on the next request without waiting 30s.
       try {
-        revalidateTag("nexora-maintenance");
+        revalidateTag("platform-maintenance");
       } catch (error) {
         console.warn("[admin:settings:revalidate]", error);
       }

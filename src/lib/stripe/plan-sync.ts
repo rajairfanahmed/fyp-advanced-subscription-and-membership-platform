@@ -1,4 +1,3 @@
-import type { HydratedDocument } from "mongoose";
 import type Stripe from "stripe";
 
 import {
@@ -7,7 +6,7 @@ import {
 } from "@/lib/mongodb/models";
 import { getStripeClient, isStripeConfigured } from "@/lib/stripe/client";
 
-type PlanDoc = HydratedDocument<PlanDocument>;
+type PlanDoc = PlanDocument;
 
 /**
  * Idempotent Stripe sync for a single Plan document.
@@ -132,7 +131,7 @@ async function ensureStripePrice(
 
 /**
  * Sync a single plan to Stripe and persist the resulting ids on the
- * Mongo document. Throws if Stripe is unreachable; callers wanting
+ * plan row. Throws if Stripe is unreachable; callers wanting
  * best-effort behaviour should use `syncPlanToStripeBestEffort`.
  */
 export async function syncPlanToStripe(

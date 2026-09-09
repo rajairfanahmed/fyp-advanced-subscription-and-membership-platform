@@ -41,6 +41,13 @@ export async function GET(
     if (!content) return NextResponse.json({ error: "Content not found." }, { status: 404 });
     return NextResponse.json({ content });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to load content.";
+    if (
+      message === "Only creator accounts can manage creator content." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[content:item:get]", error);
     return NextResponse.json({ error: "Unable to load content." }, { status: 500 });
   }
@@ -73,11 +80,15 @@ export async function PATCH(
     if (!content) return NextResponse.json({ error: "Content not found." }, { status: 404 });
     return NextResponse.json({ content });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to update content.";
+    if (
+      message === "Only creator accounts can manage creator content." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[content:item:patch]", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to update content." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }
 
@@ -137,7 +148,14 @@ export async function DELETE(
     if (!content) return NextResponse.json({ error: "Content not found." }, { status: 404 });
     return NextResponse.json({ content });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to delete content.";
+    if (
+      message === "Only creator accounts can manage creator content." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[content:item:delete]", error);
-    return NextResponse.json({ error: error instanceof Error ? error.message : "Unable to delete content." }, { status: 500 });
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

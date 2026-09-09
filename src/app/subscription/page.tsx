@@ -21,7 +21,7 @@ import type {
 const TIER_INFO = [
   {
     name: "Free",
-    price: "$0",
+    price: "Free",
     accessLevel: "free" as const,
     features: [
       "Watch free articles and video previews.",
@@ -31,7 +31,7 @@ const TIER_INFO = [
   },
   {
     name: "Basic",
-    price: "$19",
+    price: "Set by creator",
     accessLevel: "basic" as const,
     features: [
       "Watch free + basic videos and articles.",
@@ -41,12 +41,12 @@ const TIER_INFO = [
   },
   {
     name: "Premium",
-    price: "$49",
+    price: "Set by creator",
     accessLevel: "premium" as const,
     features: [
       "Watch every tier of content from the creator.",
       "Unlimited file downloads.",
-      "Priority support and templates.",
+      "Every file download from that creator.",
     ],
   },
 ];
@@ -70,9 +70,10 @@ function formatRenewalDate(iso: string | null) {
   });
 }
 
-function formatPrice(monthly: number) {
-  if (!monthly) return "$0";
-  return `$${monthly.toFixed(monthly % 1 === 0 ? 0 : 2)}`;
+function formatPrice(monthly: number | string | null | undefined) {
+  const amount = Number(monthly);
+  if (!Number.isFinite(amount) || amount === 0) return "$0";
+  return `$${amount.toFixed(amount % 1 === 0 ? 0 : 2)}`;
 }
 
 export default function SubscriptionPage() {
@@ -82,6 +83,8 @@ export default function SubscriptionPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [loadNonce, setLoadNonce] = useState(0);
+  const [checkoutPending, setCheckoutPending] = useState(false);
+  const [checkoutNotice, setCheckoutNotice] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -105,6 +108,67 @@ export default function SubscriptionPage() {
       cancelled = true;
     };
   }, [loadNonce]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("checkout") !== "success") return;
+
+    const sessionId = params.get("session_id") ?? "";
+    let cancelled = false;
+    setCheckoutPending(true);
+    setCheckoutNotice("Confirming your payment with Stripe…");
+
+    async function confirm() {
+      const started = Date.now();
+      while (!cancelled && Date.now() - started < 20000) {
+        try {
+          const url = sessionId
+            ? `/api/checkout/session?session_id=${encodeURIComponent(sessionId)}`
+            : "/api/subscriptions/me";
+          const res = await fetch(url, { cache: "no-store" });
+          if (res.ok) {
+            const data = (await res.json()) as {
+              ready?: boolean;
+              subscriptions?: SubscriptionResponse[];
+            };
+            const ready =
+              data.ready === true ||
+              (Array.isArray(data.subscriptions) &&
+                data.subscriptions.some(
+                  (s) =>
+                    s.accessLevel !== "free" &&
+                    (s.status === "active" || s.status === "trialing")
+                ));
+            if (ready) {
+              if (!cancelled) {
+                setCheckoutPending(false);
+                setCheckoutNotice("Payment confirmed. Your paid membership is active.");
+                setLoadNonce((n) => n + 1);
+                window.history.replaceState({}, "", "/subscription");
+              }
+              return;
+            }
+          }
+        } catch {
+          // keep polling
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+      }
+      if (!cancelled) {
+        setCheckoutPending(false);
+        setCheckoutNotice(
+          "Stripe is still confirming this payment. Refresh in a moment, or open Billing if the charge already went through."
+        );
+        setLoadNonce((n) => n + 1);
+      }
+    }
+
+    confirm();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const activeSubscriptions = useMemo(
     () => subscriptions.filter((s) => s.status === "active" || s.status === "trialing" || s.status === "past_due"),
@@ -195,6 +259,14 @@ export default function SubscriptionPage() {
         <div className="grid lg:grid-cols-3 gap-10">
 
           <div className="lg:col-span-2 space-y-10">
+
+            {checkoutNotice && (
+              <MotionReveal>
+                <div className="bg-sky-50 border border-sky-100 rounded-2xl p-5 text-sm font-medium text-sky-900">
+                  {checkoutPending ? "Confirming your payment with Stripe…" : checkoutNotice}
+                </div>
+              </MotionReveal>
+            )}
 
             {loadError && (
               <MotionReveal>
@@ -325,7 +397,18 @@ export default function SubscriptionPage() {
                             </div>
                           </div>
                           <div className="flex items-center gap-2 shrink-0">
-                            {subscription.accessLevel === "free" ? (
+                            {subscription.accessLevel === "free" && subscription.creatorSlug && (
+                              <Button
+                                variant="primary"
+                                className="text-xs"
+                                href={`/creators/${subscription.creatorSlug}`}
+                              >
+                                Upgrade
+                              </Button>
+                            )}
+                            {subscription.cancelAtPeriodEnd ? (
+                              <Badge variant="locked">Ends this period</Badge>
+                            ) : subscription.accessLevel === "free" ? (
                               <Button
                                 variant="outline"
                                 className="text-rose-600 border-rose-200 hover:bg-rose-50 text-xs"
@@ -357,7 +440,7 @@ export default function SubscriptionPage() {
             <MotionReveal className="space-y-6">
               <h3 className="text-2xl font-black font-display text-[var(--color-ink)]">Plan Tiers</h3>
               <p className="text-slate-600 font-medium max-w-xl">
-                Every creator on Nexora offers Free, Basic, and Premium plans. Pricing is set by each creator on their own profile — these tiers describe what kind of access each level unlocks.
+                Every creator on Advanced Subscription & Membership Platform offers Free, Basic, and Premium plans. Pricing is set by each creator on their own profile — these tiers describe what kind of access each level unlocks.
               </p>
               <div className="grid md:grid-cols-3 gap-6">
                 {TIER_INFO.map((tier) => (
@@ -369,8 +452,17 @@ export default function SubscriptionPage() {
                   >
                     <h4 className="font-bold text-[var(--color-ink)] mb-1">{tier.name}</h4>
                     <div className="text-xl font-bold text-[var(--color-ink)] mb-6">
-                      from {tier.price}{" "}
-                      <span className="text-xs text-slate-500 font-medium">/mo</span>
+                      {tier.accessLevel === "free" ? (
+                        <>
+                          {tier.price}{" "}
+                          <span className="text-xs text-slate-500 font-medium">forever</span>
+                        </>
+                      ) : (
+                        <>
+                          {tier.price}{" "}
+                          <span className="text-xs text-slate-500 font-medium">/mo</span>
+                        </>
+                      )}
                     </div>
                     <ul className="space-y-3 mb-8 flex-1">
                       {tier.features.map((feat, j) => (
@@ -455,15 +547,13 @@ export default function SubscriptionPage() {
                   <div>
                     <h4 className="font-bold text-slate-200 text-sm mb-2">When do I get billed?</h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
-                      Free memberships are never billed. Paid memberships are billed monthly through Stripe once
-                      that flow ships.
+                      Free memberships are never billed. Paid Basic and Premium memberships are billed monthly through Stripe on each creator&apos;s checkout.
                     </p>
                   </div>
                   <div>
                     <h4 className="font-bold text-slate-200 text-sm mb-2">Can I switch plans?</h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
-                      Yes — open a creator&apos;s profile and pick the tier you want. Upgrades and downgrades
-                      will go through Stripe Checkout in a later release.
+                      Yes — open a creator&apos;s profile and Subscribe to Basic or Premium. If you already pay that creator, the new tier replaces the old one on the same Stripe subscription.
                     </p>
                   </div>
                   <div>

@@ -36,6 +36,13 @@ export async function GET(req: NextRequest) {
     const content = await listPublishedContent({ viewerClerkUserId: userId ?? undefined });
     return NextResponse.json({ content });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to load content.";
+    if (
+      message === "Only creator accounts can manage creator content." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[content:get]", error);
     return NextResponse.json({ error: "Unable to load content." }, { status: 500 });
   }
@@ -63,10 +70,14 @@ export async function POST(req: NextRequest) {
     const content = await createCreatorContent(payload);
     return NextResponse.json({ content }, { status: 201 });
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unable to create content.";
+    if (
+      message === "Only creator accounts can manage creator content." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[content:post]", error);
-    return NextResponse.json(
-      { error: error instanceof Error ? error.message : "Unable to create content." },
-      { status: 400 }
-    );
+    return NextResponse.json({ error: message }, { status: 400 });
   }
 }

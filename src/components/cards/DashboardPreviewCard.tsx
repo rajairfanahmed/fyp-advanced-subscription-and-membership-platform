@@ -10,17 +10,17 @@ export function DashboardPreviewCard() {
         {/* Mock Header */}
         <div className="flex items-center justify-between mb-8 pb-6 border-b border-[var(--color-border)]">
           <div className="flex items-center gap-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-600 to-sky-500 flex items-center justify-center text-white font-display font-bold text-xl shadow-lg shadow-emerald-500/30">
-              N
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-emerald-600 to-sky-500 flex items-center justify-center text-white font-display font-black text-[10px] tracking-wide shadow-lg shadow-emerald-500/30">
+              ASMP
             </div>
             <div>
               <h3 className="text-lg font-bold font-display text-[var(--color-ink)] leading-tight">Creator Dashboard</h3>
-              <p className="text-sm font-medium text-[var(--color-muted)]">nexora.app/creator</p>
+              <p className="text-sm font-medium text-[var(--color-muted)]">/creator</p>
             </div>
           </div>
           <div className="hidden sm:flex items-center gap-2 bg-white px-3 py-1.5 rounded-full border border-[var(--color-border)] shadow-sm">
             <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Live Sync</span>
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">Example</span>
           </div>
         </div>
 

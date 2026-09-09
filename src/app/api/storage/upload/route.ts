@@ -66,10 +66,16 @@ export async function POST(req: NextRequest) {
 
   const profile = await UserProfileModel.findOne(
     { clerkUserId: userId },
-    { role: 1, email: 1 }
+    { role: 1, email: 1, accountStatus: 1 }
   ).lean();
 
   const isAdmin = profile?.email ? isAdminEmail(profile.email) : false;
+  if (profile?.accountStatus === "suspended" && !isAdmin) {
+    return NextResponse.json(
+      { error: "This account is suspended." },
+      { status: 403 }
+    );
+  }
   if (!profile || (profile.role !== "creator" && !isAdmin)) {
     return NextResponse.json(
       {

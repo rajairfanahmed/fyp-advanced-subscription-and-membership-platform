@@ -55,7 +55,7 @@ export const DEFAULT_CREATOR_PLANS: DefaultCreatorPlan[] = [
     features: [
       "Every tier of content from the creator.",
       "Unlimited file downloads.",
-      "Priority support and templates.",
+      "Every file download from that creator.",
     ],
     sortOrder: 2,
   },

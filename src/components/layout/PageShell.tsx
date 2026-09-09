@@ -1,4 +1,5 @@
 import React from "react";
+import { siteConfig } from "@/config/site";
 
 interface PageShellProps {
   children: React.ReactNode;
@@ -11,7 +12,9 @@ export function PageShell({ children, role, title }: PageShellProps) {
     <div className="min-h-screen bg-[var(--color-paper)] text-[var(--color-ink)] flex flex-col font-sans">
       <header className="sticky top-0 z-50 border-b border-[var(--color-border)] bg-[var(--color-glass)] backdrop-blur-md px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <span className="font-display font-bold text-xl tracking-tight">Nexora</span>
+          <span className="font-display font-bold text-sm sm:text-base tracking-tight leading-tight max-w-[14rem]">
+            {siteConfig.name}
+          </span>
           <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[var(--color-emerald)] text-white uppercase tracking-wider">
             {role}
           </span>

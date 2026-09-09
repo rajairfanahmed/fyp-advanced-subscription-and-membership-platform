@@ -193,7 +193,7 @@ const FALLBACK_FEATURES: Record<PlanAccessLevel, string[]> = {
   premium: [
     "Every tier of content from the creator.",
     "Unlimited file downloads.",
-    "Priority support and templates.",
+    "Every file download from that creator.",
   ],
 };
 

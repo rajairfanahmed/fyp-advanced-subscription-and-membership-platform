@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuth } from "@clerk/nextjs";
 import { Container } from "@/components/layout/Container";
@@ -57,11 +57,16 @@ function formatPrice(monthly: number, currency: string) {
 
 export default function CreatorProfilePage() {
   const params = useParams<{ creatorSlug: string }>();
-  const { isSignedIn, isLoaded } = useAuth();
+  const searchParams = useSearchParams();
+  const checkoutCancelled = searchParams.get("checkout") === "cancelled";
+  const { isSignedIn, isLoaded, userId } = useAuth();
   const [creator, setCreator] = useState<PublicCreator | null>(null);
   const [content, setContent] = useState<PublicContent[]>([]);
   const [plans, setPlans] = useState<PublicCreatorPlan[]>([]);
   const [viewer, setViewer] = useState<ViewerSubscription | null>(null);
+  const [viewerRole, setViewerRole] = useState<"subscriber" | "creator" | null>(
+    null
+  );
   const [isLoading, setIsLoading] = useState(true);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
@@ -104,6 +109,31 @@ export default function CreatorProfilePage() {
     };
   }, [params?.creatorSlug, reloadNonce]);
 
+  useEffect(() => {
+    if (!isSignedIn) {
+      setViewerRole(null);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/auth/me", { cache: "no-store" })
+      .then((res) => res.json())
+      .then((data: { user?: { role?: string } | null }) => {
+        if (cancelled) return;
+        const role = data.user?.role;
+        setViewerRole(
+          role === "creator" ? "creator" : role === "subscriber" ? "subscriber" : null
+        );
+      })
+      .catch(() => {
+        if (!cancelled) setViewerRole(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isSignedIn]);
+
+  const isOwnProfile = Boolean(userId && creator?.clerkUserId === userId);
+
   const sortedPlans = useMemo(
     () =>
       [...plans].sort(
@@ -118,6 +148,7 @@ export default function CreatorProfilePage() {
       window.location.href = `/login?redirect_url=${encodeURIComponent(`/creators/${creator.slug}`)}`;
       return;
     }
+    if (viewerRole === "creator" || isOwnProfile) return;
     setPendingPlanId("free");
     setActionError("");
     try {
@@ -142,6 +173,7 @@ export default function CreatorProfilePage() {
       window.location.href = `/login?redirect_url=${encodeURIComponent(`/creators/${creator.slug}`)}`;
       return;
     }
+    if (viewerRole === "creator" || isOwnProfile) return;
     setPendingPlanId(plan.id);
     setActionError("");
     try {
@@ -152,8 +184,14 @@ export default function CreatorProfilePage() {
       });
       const data = (await res.json().catch(() => ({}))) as {
         url?: string;
+        applied?: boolean;
         error?: string;
       };
+      if (data.applied) {
+        setReloadNonce((n) => n + 1);
+        setPendingPlanId(null);
+        return;
+      }
       if (!res.ok || !data.url) {
         throw new Error(data.error || "Failed to start checkout.");
       }
@@ -232,7 +270,7 @@ export default function CreatorProfilePage() {
                       {creator.name}
                     </h1>
                     <p className="text-[var(--color-muted)] font-medium text-base max-w-xl leading-relaxed">
-                      {creator.bio || "Creator profile details are coming soon."}
+                      {creator.bio || "This creator hasn’t added a bio yet."}
                     </p>
                   </div>
                 </div>
@@ -347,7 +385,25 @@ export default function CreatorProfilePage() {
                         )}
 
                         <div className="mt-4">
-                          {isCurrent ? (
+                          {isOwnProfile ? (
+                            <Button
+                              href="/creator/plans"
+                              variant="outline"
+                              className="w-full text-xs"
+                            >
+                              Your plans
+                            </Button>
+                          ) : viewerRole === "creator" ? (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full text-xs"
+                              disabled
+                              title="Creator accounts cannot follow or subscribe."
+                            >
+                              Use a subscriber account
+                            </Button>
+                          ) : isCurrent ? (
                             <Button
                               type="button"
                               variant="outline"
@@ -367,25 +423,30 @@ export default function CreatorProfilePage() {
                               Included in your tier
                             </Button>
                           ) : isFree ? (
-                            <Button
-                              type="button"
-                              variant="secondary"
-                              className="w-full text-xs"
-                              onClick={handleSubscribeFree}
-                              disabled={isPending}
-                            >
-                              {isPending ? "Subscribing…" : "Follow free"}
-                            </Button>
+                            <>
+                              <Button
+                                type="button"
+                                variant="secondary"
+                                className="w-full text-xs"
+                                onClick={handleSubscribeFree}
+                                disabled={isPending}
+                              >
+                                {isPending ? "Following…" : "Follow free"}
+                              </Button>
+                              <p className="text-[10px] font-medium text-slate-500 mt-2 text-center">
+                                Unlocks Free content only
+                              </p>
+                            </>
                           ) : stripeBlocked ? (
                             <Button
                               type="button"
                               variant="outline"
                               className="w-full text-xs"
                               disabled
-                              title="Creator hasn't connected this plan to Stripe yet."
+                              title="Checkout isn't ready for this plan yet."
                               icon={<Lock className="w-3.5 h-3.5" />}
                             >
-                              Coming soon
+                              Checkout not ready
                             </Button>
                           ) : (
                             <Button
@@ -407,9 +468,42 @@ export default function CreatorProfilePage() {
                 </div>
               )}
 
+              {isOwnProfile && (
+                <p className="mt-4 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                  This is your creator profile. Membership cards here are what subscribers see — manage them from{" "}
+                  <Link href="/creator/plans" className="font-black text-sky-700 underline">
+                    your plans
+                  </Link>
+                  .
+                </p>
+              )}
+
+              {viewerRole === "creator" && !isOwnProfile && (
+                <p className="mt-4 text-sm font-medium text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                  Creator accounts cannot follow or subscribe. Use a subscriber account to join this membership.
+                </p>
+              )}
+
+              {checkoutCancelled && (
+                <p className="mt-4 text-sm font-bold text-slate-700 bg-slate-50 border border-slate-200 rounded-xl px-4 py-3">
+                  Checkout cancelled. No charge was made.
+                </p>
+              )}
+
               {actionError && (
                 <p className="mt-4 text-sm font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
                   {actionError}
+                </p>
+              )}
+
+              {viewer &&
+                (viewer.status === "active" ||
+                  viewer.status === "trialing" ||
+                  viewer.status === "past_due") &&
+                viewer.accessLevel === "free" && (
+                <p className="mt-4 text-sm font-medium text-sky-800 bg-sky-50 border border-sky-100 rounded-xl px-4 py-3">
+                  You currently have <span className="font-black">Free</span> access. Follow free
+                  does not unlock Basic or Premium content — use Subscribe on those cards to pay.
                 </p>
               )}
 
@@ -429,7 +523,17 @@ export default function CreatorProfilePage() {
             <h2 className="text-xl md:text-2xl font-black font-display text-[var(--color-ink)] tracking-tight mb-6">
               Published Content
             </h2>
-            <PublicCreatorContentTabs content={content} />
+            <PublicCreatorContentTabs
+              content={content}
+              viewerAccessLevel={
+                viewer &&
+                (viewer.status === "active" ||
+                  viewer.status === "trialing" ||
+                  viewer.status === "past_due")
+                  ? viewer.accessLevel
+                  : "free"
+              }
+            />
           </MotionItem>
         </MotionReveal>
       </Container>

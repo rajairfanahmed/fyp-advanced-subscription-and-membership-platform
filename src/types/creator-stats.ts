@@ -8,6 +8,7 @@ export type CreatorOverviewMetrics = {
   paidSubscribers: number;
   contentViews: number;
   cancelledSubscribers30d: number;
+  pendingCancellations: number;
   conversionRatePercent: number;
 };
 

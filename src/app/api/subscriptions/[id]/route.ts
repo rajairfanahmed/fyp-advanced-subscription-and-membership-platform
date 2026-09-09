@@ -57,6 +57,9 @@ export async function PATCH(req: Request, context: RouteContext) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Failed to update subscription.";
+    if (message === "This account is suspended.") {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[subscriptions:patch]", error);
     return NextResponse.json({ error: message }, { status: 400 });
   }

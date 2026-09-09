@@ -214,6 +214,16 @@ export function serializeUserProfile(
   };
 }
 
+export const ACCOUNT_SUSPENDED_MESSAGE = "This account is suspended.";
+
+export function assertAccountIsActive(
+  profile: { accountStatus?: string } | null | undefined
+) {
+  if (profile?.accountStatus === "suspended") {
+    throw new Error(ACCOUNT_SUSPENDED_MESSAGE);
+  }
+}
+
 export async function ensureCurrentUserProfile(options: { updateLastLogin?: boolean } = {}) {
   const user = await currentUser();
   if (!user) return null;
@@ -224,7 +234,7 @@ export async function ensureCurrentUserProfile(options: { updateLastLogin?: bool
   if (!email) return null;
 
   const fullName = [user.firstName, user.lastName].filter(Boolean).join(" ").trim();
-  const displayName = user.username || fullName || email.split("@")[0] || "Nexora member";
+  const displayName = user.username || fullName || email.split("@")[0] || "Advanced Subscription & Membership Platform member";
   const metadataRole = getUserRole(
     (user.publicMetadata as Record<string, unknown>) ?? undefined,
     (user.unsafeMetadata as Record<string, unknown>) ?? undefined
@@ -289,6 +299,17 @@ export async function ensureCurrentUserProfile(options: { updateLastLogin?: bool
   if (effectiveRole === "creator" && !isAdmin) {
     const existingCreator = await CreatorProfileModel.findOne({ clerkUserId: user.id });
     if (!existingCreator) {
+      let profileStatus: "draft" | "published" = "draft";
+      try {
+        const { loadPlatformSettings } = await import("@/lib/mongodb/admin-settings");
+        const settings = await loadPlatformSettings();
+        if (settings.defaultCreatorStatus === "active") {
+          profileStatus = "published";
+        }
+      } catch (error) {
+        console.warn("[profile-sync] default creator status", error);
+      }
+
       await CreatorProfileModel.create({
         userProfileId: profile._id,
         clerkUserId: user.id,
@@ -302,6 +323,7 @@ export async function ensureCurrentUserProfile(options: { updateLastLogin?: bool
         avatarKey: "",
         bannerUrl: "",
         bannerKey: "",
+        profileStatus,
       });
     }
   }
@@ -339,7 +361,7 @@ export async function ensureCurrentUserProfile(options: { updateLastLogin?: bool
         await NotificationModel.create({
           recipientClerkUserId: user.id,
           category: "system",
-          title: `Welcome to Nexora${profile.displayName ? `, ${profile.displayName}` : ""}!`,
+          title: `Welcome to Advanced Subscription & Membership Platform${profile.displayName ? `, ${profile.displayName}` : ""}!`,
           message:
             effectiveRole === "creator"
               ? "Your creator workspace is ready. Set up your profile, create your first plans, and publish content to start earning."
@@ -607,5 +629,23 @@ export async function updateCurrentCreatorProfileFromFormData(formData: FormData
 export async function getCreatorProfileBySlug(slug: string) {
   await connectToMongoDB();
   const creatorProfile = await CreatorProfileModel.findOne({ creatorSlug: slugify(slug) });
-  return creatorProfile ? serializeCreatorProfile(creatorProfile) : null;
+  if (!creatorProfile) return null;
+
+  if (creatorProfile.profileStatus === "published") {
+    return serializeCreatorProfile(creatorProfile);
+  }
+
+  const user = await currentUser();
+  const userId = user?.id ?? null;
+  if (!userId) return null;
+  if (userId === creatorProfile.clerkUserId) {
+    return serializeCreatorProfile(creatorProfile);
+  }
+
+  const viewer = await UserProfileModel.findOne({ clerkUserId: userId });
+  if (viewer?.email && isAdminEmail(viewer.email)) {
+    return serializeCreatorProfile(creatorProfile);
+  }
+
+  return null;
 }

@@ -156,7 +156,7 @@ export default function BillingPage() {
             </MotionItem>
             <MotionItem>
               <p className="text-lg md:text-xl text-[var(--color-muted)] font-medium max-w-2xl leading-relaxed">
-                Track your renewal dates, payment status, and invoice history for every paid Nexora membership.
+                Track your renewal dates, payment status, and invoice history for every paid Advanced Subscription & Membership Platform membership.
               </p>
             </MotionItem>
           </MotionReveal>
@@ -244,8 +244,22 @@ export default function BillingPage() {
                           <CheckCircle2 className="w-5 h-5 text-emerald-500" /> Current &amp; Active
                         </div>
                       ) : (
-                        <div className="flex items-center gap-2 text-slate-500 font-bold">
-                          <CheckCircle2 className="w-5 h-5 text-slate-400" /> No paid memberships
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 text-slate-500 font-bold">
+                            <CheckCircle2 className="w-5 h-5 text-slate-400" /> No paid memberships
+                          </div>
+                          {subscriptions.some(
+                            (s) =>
+                              s.accessLevel === "free" &&
+                              (s.status === "active" || s.status === "trialing")
+                          ) && (
+                            <p className="text-sm font-medium text-slate-600 leading-relaxed">
+                              You&apos;re on Follow free with one or more creators. Open a creator profile and Subscribe to Basic or Premium to start paid billing.
+                            </p>
+                          )}
+                          <Button variant="primary" size="sm" href="/creators">
+                            Browse creators
+                          </Button>
                         </div>
                       )}
                     </div>
@@ -330,9 +344,12 @@ export default function BillingPage() {
                     <h3 className="text-base font-black text-[var(--color-ink)] mb-2">
                       No invoices yet
                     </h3>
-                    <p className="text-slate-500 font-medium max-w-md">
+                    <p className="text-slate-500 font-medium max-w-md mb-6">
                       Once you pay for a Basic or Premium membership, your receipts will appear here.
                     </p>
+                    <Button variant="primary" href="/creators">
+                      Browse creators
+                    </Button>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
@@ -421,7 +438,7 @@ export default function BillingPage() {
                   <div>
                     <h4 className="font-bold text-[var(--color-ink)] text-sm mb-1">Need to change plans?</h4>
                     <p className="text-sm text-slate-500 leading-relaxed font-medium">
-                      Plan upgrades and downgrades are managed on the subscription page.
+                      Open the creator&apos;s profile and Subscribe to a different tier. Paid plan changes update the same Stripe subscription.
                     </p>
                   </div>
                 </div>

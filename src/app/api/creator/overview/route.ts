@@ -21,8 +21,13 @@ export async function GET() {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load overview.";
+    const message = error instanceof Error ? error.message : "Failed to load overview.";
+    if (
+      message === "Only creator accounts can view creator stats." ||
+      message === "This account is suspended."
+    ) {
+      return NextResponse.json({ error: message }, { status: 403 });
+    }
     console.error("[creator:overview]", error);
     return NextResponse.json({ error: message }, { status: 400 });
   }

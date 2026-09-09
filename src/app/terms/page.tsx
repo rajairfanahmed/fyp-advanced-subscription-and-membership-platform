@@ -13,27 +13,27 @@ const TERMS_SECTIONS = [
   {
     id: "overview",
     title: "1. Overview",
-    content: "These terms govern the use of Nexora for all digital creators, educators, and subscribers. By accessing the platform, you agree to comply with these foundational terms and understand that this is a premium managed membership environment.",
+    content: "These terms govern the use of Advanced Subscription & Membership Platform for all digital creators, educators, and subscribers. By accessing the platform, you agree to comply with these foundational terms and understand that this is a premium managed membership environment.",
   },
   {
     id: "account-responsibilities",
     title: "2. Account Responsibilities",
-    content: "Users must maintain the security of their accounts and passwords. Nexora is not responsible for unauthorized access resulting from user negligence. Creators are responsible for the content they publish and must ensure they hold appropriate rights.",
+    content: "Users must maintain the security of their accounts and passwords. Advanced Subscription & Membership Platform is not responsible for unauthorized access resulting from user negligence. Creators are responsible for the content they publish and must ensure they hold appropriate rights.",
   },
   {
     id: "creator-content",
     title: "3. Creator Content",
-    content: "Creators retain full ownership of the videos, articles, PDFs, ZIP files, and templates they upload. Nexora acts purely as the hosting and access management infrastructure. Content must comply with our community guidelines and not violate any laws.",
+    content: "Creators retain full ownership of the videos, articles, PDFs, ZIP files, and templates they upload. Advanced Subscription & Membership Platform acts purely as the hosting and access management infrastructure. Content must comply with our community guidelines and not violate any laws.",
   },
   {
     id: "subscriber-access",
     title: "4. Subscriber Access",
-    content: "Subscribers receive access to specific content exclusively based on their active subscription plan (e.g., Free, Basic, or Premium). Access is revoked automatically if a subscription expires, fails to renew, or is cancelled.",
+    content: "Subscribers receive access to a creator's content based on their membership with that creator (Free, Basic, or Premium). Paid cancellations keep access until the billing period ends. A membership that missed a payment still grants access while Stripe retries the charge. Access ends when the period expires or the membership is fully cancelled.",
   },
   {
     id: "subscription-plans",
     title: "5. Subscription Plans",
-    content: "Creators have the right to define the pricing, billing frequency, and specific content assigned to their subscription tiers. Nexora reserves the right to modify platform-level features included in these tiers with prior notice.",
+    content: "Creators have the right to define the pricing, billing frequency, and specific content assigned to their subscription tiers. Advanced Subscription & Membership Platform reserves the right to modify platform-level features included in these tiers with prior notice.",
   },
   {
     id: "payments-and-renewals",
@@ -43,17 +43,17 @@ const TERMS_SECTIONS = [
   {
     id: "cancellations",
     title: "7. Cancellations",
-    content: "Subscribers may cancel their recurring plans at any time through their account dashboard. Access will remain active until the end of the current billing cycle. Creators can also cancel or pause their membership offerings.",
+    content: "Subscribers may cancel a recurring plan at any time through billing. Access remains active until the end of the current billing cycle. Creators manage their own plans and content; deleting a creator workspace cancels member subscriptions on Stripe.",
   },
   {
     id: "restricted-use",
     title: "8. Restricted Use",
-    content: "Users may not reverse engineer the platform, distribute malware, scrape content, or use Nexora for illegal purposes. Violation of these restricted uses will result in immediate permanent account termination without refund.",
+    content: "Users may not reverse engineer the platform, distribute malware, scrape content, or use Advanced Subscription & Membership Platform for illegal purposes. Violation of these restricted uses will result in immediate permanent account termination without refund.",
   },
   {
     id: "platform-changes",
     title: "9. Platform Changes",
-    content: "We continuously improve Nexora and may modify or discontinue features, tools, or analytics over time. We will provide reasonable advance notice for any major changes that impact creator revenue or subscriber access.",
+    content: "We continuously improve Advanced Subscription & Membership Platform and may modify or discontinue features, tools, or analytics over time. We will provide reasonable advance notice for any major changes that impact creator revenue or subscriber access.",
   },
   {
     id: "contact",
@@ -115,7 +115,7 @@ export default function TermsPage() {
 
             <MotionItem>
               <p className="text-lg md:text-xl text-[var(--color-muted)] leading-relaxed font-medium max-w-2xl">
-                Clear usage terms for creators, subscribers, and platform users using Nexora. Last updated: September 2026.
+                Clear usage terms for creators, subscribers, and platform users using Advanced Subscription & Membership Platform. Last updated: September 2026.
               </p>
             </MotionItem>
           </MotionReveal>
@@ -164,9 +164,9 @@ export default function TermsPage() {
                     <ShieldAlert className="w-5 h-5 text-amber-600" />
                   </div>
                   <div>
-                    <h4 className="font-bold text-amber-900 mb-2">Legal Review Required</h4>
-                    <p className="text-amber-800 text-sm font-medium leading-relaxed">
-                      This page contains placeholder terms for product development. Final legal text should be reviewed before production launch. Do not consider this actual legal advice.
+                    <h4 className="font-bold text-slate-900 mb-2">About these terms</h4>
+                    <p className="text-slate-700 text-sm font-medium leading-relaxed">
+                      These terms describe how Advanced Subscription & Membership Platform accounts, per-creator memberships, and Stripe billing work. They are product documentation, not legal advice.
                     </p>
                   </div>
                 </div>

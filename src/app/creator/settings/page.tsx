@@ -11,7 +11,7 @@ import type { CreatorProfileResponse, CreatorProfileStatus, CreatorWorkspaceAler
 
 const NOTIFICATION_PREFS = [
   "New subscriber alerts",
-  "Renewal reminder summaries",
+  "Billing summaries",
   "Failed payment alerts",
   "Content engagement reports",
   "Weekly revenue summary",

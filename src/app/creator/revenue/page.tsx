@@ -219,7 +219,7 @@ export default function RevenuePage() {
 
             {/* Recent Payments Table */}
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
+              <div id="recent-payments" className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
                 <div className="p-10 border-b border-slate-50 flex items-center justify-between">
                   <h2 className="text-xl font-black font-display text-slate-900">
                     Recent Payments
@@ -238,7 +238,7 @@ export default function RevenuePage() {
                     </div>
                     <p className="font-black text-slate-700 mb-1">No payments yet</p>
                     <p className="text-sm font-medium text-slate-500 max-w-md">
-                      Once Stripe checkout is connected and members pay, charges and refunds will land here.
+                      Once members pay through Stripe checkout, charges and refunds will land here.
                     </p>
                   </div>
                 ) : (
@@ -357,10 +357,14 @@ export default function RevenuePage() {
                   <Button
                     variant="outline"
                     className="w-full h-12 bg-white text-red-700 border-red-100 hover:bg-red-50 text-[10px] font-black uppercase tracking-widest rounded-xl transition-all"
-                    disabled
-                    title="Detailed dunning UI is part of the Stripe phase"
+                    onClick={() =>
+                      document.getElementById("recent-payments")?.scrollIntoView({
+                        behavior: "smooth",
+                        block: "start",
+                      })
+                    }
                   >
-                    Review Charges
+                    Review charges
                   </Button>
                 </div>
               </MotionReveal>

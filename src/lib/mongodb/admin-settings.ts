@@ -30,8 +30,8 @@ const ALLOWED_FAILURE_CADENCE: AdminPlatformSettingsResponse["failureAlertCadenc
 
 function serialize(doc: PlatformSettingsDocument): AdminPlatformSettingsResponse {
   return {
-    platformDisplayName: doc.platformDisplayName ?? "Nexora",
-    supportEmail: doc.supportEmail ?? "support@nexora.com",
+    platformDisplayName: doc.platformDisplayName ?? "Advanced Subscription & Membership Platform",
+    supportEmail: doc.supportEmail ?? "support@example.com",
     defaultSubscriberTier:
       (doc.defaultSubscriberTier as
         | AdminPlatformSettingsResponse["defaultSubscriberTier"]

@@ -15,7 +15,6 @@ import {
   UserMinus,
   Video,
   TrendingUp,
-  Search,
   ArrowRight,
 } from "lucide-react";
 import type { AdminOverviewResponse } from "@/types/admin-stats";
@@ -157,18 +156,6 @@ export default function AdminOverviewPage() {
           eyebrow="Platform Status"
           title="Admin Dashboard"
           subtitle="Monitor platform users, creators, subscribers, subscriptions, payments, content, notifications, and analytics from one control centre."
-          action={
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Global search..."
-                disabled
-                title="Global search lands in a follow-up"
-                className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all text-sm font-medium shadow-sm disabled:opacity-60"
-              />
-            </div>
-          }
         />
 
         {errorMessage && (

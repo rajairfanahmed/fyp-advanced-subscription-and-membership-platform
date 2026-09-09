@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useAuth, useClerk } from "@clerk/nextjs";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/Button";
+import { BrandLogo } from "@/components/brand/BrandLogo";
 import {
   LogOut, User, LayoutDashboard, BookOpen, CreditCard, Bell,
   Settings, BarChart3, DollarSign, ShieldCheck, Users
@@ -130,6 +131,8 @@ export default function MainNav() {
         { href: "/creator/subscribers", label: "Subscribers", icon: User },
         { href: "/creator/analytics", label: "Analytics", icon: BarChart3 },
         { href: "/creator/settings", label: "Settings", icon: Settings },
+        { href: "/notifications", label: "Notifications", icon: Bell },
+        { href: "/account", label: "Account", icon: User },
       ];
     }
     return [
@@ -145,19 +148,7 @@ export default function MainNav() {
   return (
     <>
       <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 lg:px-12 py-4 glass-panel border-x-0 border-t-0 rounded-none mix-blend-normal">
-        <Link href="/" className="relative z-50 flex items-center gap-2 group">
-          <svg className="w-8 h-8 group-hover:scale-105 transition-transform" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <rect width="32" height="32" rx="8" fill="url(#nexora-gradient)" />
-            <path d="M10 22V10L22 22V10" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
-            <defs>
-              <linearGradient id="nexora-gradient" x1="0" y1="0" x2="32" y2="32" gradientUnits="userSpaceOnUse">
-                <stop stopColor="var(--color-emerald)" />
-                <stop offset="1" stopColor="var(--color-sky)" />
-              </linearGradient>
-            </defs>
-          </svg>
-          <span className="font-display font-bold text-xl text-[var(--color-ink)] tracking-tight">Nexora</span>
-        </Link>
+        <BrandLogo markId="brand-mark-nav" />
 
         {/* Desktop Center Links */}
         <nav className="hidden md:flex items-center gap-5 absolute left-1/2 -translate-x-1/2">

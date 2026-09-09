@@ -2,8 +2,8 @@ import Link from "next/link";
 import { Wrench } from "lucide-react";
 
 export const metadata = {
-  title: "Nexora · Scheduled maintenance",
-  description: "Nexora is briefly offline for maintenance.",
+  title: "Advanced Subscription & Membership Platform · Scheduled maintenance",
+  description: "Advanced Subscription & Membership Platform is briefly offline for maintenance.",
 };
 
 /**
@@ -23,7 +23,7 @@ export default function MaintenancePage() {
           We&rsquo;re briefly offline
         </h1>
         <p className="text-base font-medium text-slate-600 leading-relaxed mb-8">
-          Nexora is in scheduled maintenance. Subscriptions and content stay
+          Advanced Subscription & Membership Platform is in scheduled maintenance. Subscriptions and content stay
           intact &mdash; we&rsquo;ll be back in a few minutes. Thanks for your
           patience.
         </p>

@@ -10,7 +10,6 @@ import { Badge } from "@/components/ui/Badge";
 import {
   Search,
   Filter,
-  MoreHorizontal,
   Users,
   ShieldAlert,
   UserCheck,
@@ -293,13 +292,6 @@ export default function AdminUsersPage() {
                                   View
                                 </Button>
                               </Link>
-                              <button
-                                className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all"
-                                disabled
-                                title="More actions land in a follow-up"
-                              >
-                                <MoreHorizontal className="w-4 h-4" />
-                              </button>
                             </div>
                           </td>
                         </tr>

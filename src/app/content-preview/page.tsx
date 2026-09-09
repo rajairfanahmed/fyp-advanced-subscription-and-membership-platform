@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { useAuth } from "@clerk/nextjs";
 import { Container } from "@/components/layout/Container";
 import { MotionReveal, MotionItem } from "@/components/ui/MotionReveal";
 import { Button } from "@/components/ui/Button";
@@ -10,10 +9,7 @@ import { PublicContentPreviewGrid, type PublicPreviewCard } from "@/components/c
 import { Search, Play, FileText, LayoutGrid, CheckCircle2, Lock } from "lucide-react";
 import type { PublicContent } from "@/lib/mongodb/public-data";
 
-function publicContentToPreviewCard(
-  content: PublicContent,
-  unlockHref: string
-): PublicPreviewCard {
+function publicContentToPreviewCard(content: PublicContent): PublicPreviewCard {
   const type =
     content.contentType === "video"
       ? "Video"
@@ -25,7 +21,9 @@ function publicContentToPreviewCard(
             | "RAR");
 
   const isLocked = content.requiredPlan !== "free";
-  const slugOrId = content.slug || content.id;
+  const creatorHref = content.creatorSlug
+    ? `/creators/${content.creatorSlug}`
+    : "/creators";
 
   return {
     id: content.id,
@@ -48,8 +46,8 @@ function publicContentToPreviewCard(
         : type === "Article"
           ? "Read Article"
           : "View File",
-    href: isLocked ? unlockHref : `/library/${slugOrId}`,
-    unlockHref,
+    href: creatorHref,
+    unlockHref: creatorHref,
   };
 }
 
@@ -91,13 +89,8 @@ const UX_FEATURES = [
 ];
 
 export default function ContentPreviewPage() {
-  const { isSignedIn } = useAuth();
   const [contentCards, setContentCards] = useState<PublicPreviewCard[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
-  const unlockHref = isSignedIn
-    ? "/pricing"
-    : "/login?redirect_url=%2Flibrary";
 
   useEffect(() => {
     let cancelled = false;
@@ -111,7 +104,7 @@ export default function ContentPreviewPage() {
           setContentCards(
             (data.content ?? [])
               .slice(0, 12)
-              .map((c) => publicContentToPreviewCard(c, unlockHref))
+              .map((c) => publicContentToPreviewCard(c))
           );
         }
       } catch {
@@ -125,7 +118,7 @@ export default function ContentPreviewPage() {
     return () => {
       cancelled = true;
     };
-  }, [unlockHref]);
+  }, []);
 
   return (
     <div className="flex flex-col min-h-screen pt-32 pb-20 lg:pt-48 bg-[var(--color-paper)]">
@@ -297,7 +290,7 @@ export default function ContentPreviewPage() {
             </MotionItem>
             <MotionItem>
               <p className="text-xl text-[var(--color-muted)] max-w-2xl mx-auto mb-12 leading-relaxed font-medium">
-                Use Nexora to organise videos, articles, PDFs, ZIP files, and private resources behind plan based access.
+                Use Advanced Subscription & Membership Platform to organise videos, articles, PDFs, ZIP files, and private resources behind plan based access.
               </p>
             </MotionItem>
             <MotionItem className="flex flex-col sm:flex-row justify-center items-center gap-4">

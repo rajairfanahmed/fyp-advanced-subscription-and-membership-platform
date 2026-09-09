@@ -37,7 +37,7 @@ const SOLUTIONS = [
   },
   {
     icon: <Settings className="w-6 h-6 text-slate-500" />,
-    title: "Admin controls for users, subscriptions, payments, and platform health later.",
+    title: "Admin controls for users, subscriptions, payments, and platform health.",
   },
 ];
 
@@ -128,7 +128,7 @@ export default function AboutPage() {
 
               <MotionItem>
                 <p className="text-lg md:text-xl text-[var(--color-muted)] leading-relaxed font-medium max-w-lg">
-                  Nexora helps digital creators, educators, and content businesses turn videos, articles, downloads, and private resources into structured subscription experiences.
+                  Advanced Subscription & Membership Platform helps digital creators, educators, and content businesses turn videos, articles, downloads, and private resources into structured subscription experiences.
                 </p>
               </MotionItem>
             </MotionReveal>
@@ -240,12 +240,12 @@ export default function AboutPage() {
         </Container>
       </section>
 
-      {/* ── 3. Nexora Solution Section ── */}
+      {/* ── 3. Advanced Subscription & Membership Platform Solution Section ── */}
       <section className="py-32 bg-[var(--color-paper)]">
         <Container>
           <MotionReveal className="text-center max-w-3xl mx-auto mb-20">
             <h2 className="text-3xl md:text-4xl lg:text-5xl font-black font-display text-[var(--color-ink)] leading-[1.1]">
-              Nexora Turns Content Into A Managed Membership System
+              Advanced Subscription & Membership Platform Turns Content Into A Managed Membership System
             </h2>
           </MotionReveal>
 
@@ -264,11 +264,11 @@ export default function AboutPage() {
         </Container>
       </section>
 
-      {/* ── 4. Who Nexora Is For ── */}
+      {/* ── 4. Who Advanced Subscription & Membership Platform Is For ── */}
       <section className="py-24 bg-white border-y border-[var(--color-border)]">
         <Container>
           <MotionReveal className="mb-16">
-            <h2 className="text-3xl md:text-4xl font-black font-display text-[var(--color-ink)]">Who uses Nexora?</h2>
+            <h2 className="text-3xl md:text-4xl font-black font-display text-[var(--color-ink)]">Who uses Advanced Subscription & Membership Platform?</h2>
           </MotionReveal>
 
           <MotionReveal className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6" staggerChildren={0.1}>
@@ -310,7 +310,7 @@ export default function AboutPage() {
         <Container>
           <MotionReveal className="mb-16">
             <h2 className="text-3xl md:text-4xl font-black font-display text-[var(--color-ink)]">A space for everyone</h2>
-            <p className="text-lg text-[var(--color-muted)] mt-2">How different roles interact with Nexora.</p>
+            <p className="text-lg text-[var(--color-muted)] mt-2">How different roles interact with Advanced Subscription & Membership Platform.</p>
           </MotionReveal>
 
           <MotionReveal className="grid md:grid-cols-2 gap-6" staggerChildren={0.1}>

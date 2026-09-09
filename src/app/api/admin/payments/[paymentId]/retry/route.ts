@@ -1,4 +1,4 @@
-import { Types } from "mongoose";
+import { isRecordId } from "@/lib/db/ids";
 import { NextResponse, type NextRequest } from "next/server";
 
 import { requireAdminContext } from "@/lib/auth/require-admin";
@@ -27,7 +27,7 @@ export async function POST(
     await connectToMongoDB();
 
     const { paymentId } = await context.params;
-    if (!Types.ObjectId.isValid(paymentId)) {
+    if (!isRecordId(paymentId)) {
       return NextResponse.json(
         { error: "Invalid payment id." },
         { status: 400 }

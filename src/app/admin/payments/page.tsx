@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/Badge";
 import {
   Search,
   Filter,
-  MoreHorizontal,
   Receipt,
   DollarSign,
   AlertCircle,
@@ -31,6 +30,16 @@ const STATUS_FILTERS: Array<{
   { id: "pending", label: "Pending" },
   { id: "failed", label: "Failed" },
   { id: "refunded", label: "Refunded" },
+];
+
+const TIER_FILTERS: Array<{
+  id: "all" | "basic" | "premium" | "free";
+  label: string;
+}> = [
+  { id: "all", label: "All tiers" },
+  { id: "basic", label: "Basic" },
+  { id: "premium", label: "Premium" },
+  { id: "free", label: "Free" },
 ];
 
 function statusLabel(status: AdminPaymentRow["status"]) {
@@ -70,6 +79,8 @@ export default function AdminPaymentsPage() {
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]["id"]>("all");
+  const [tierFilter, setTierFilter] =
+    useState<(typeof TIER_FILTERS)[number]["id"]>("all");
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [feedback, setFeedback] = useState("");
@@ -148,9 +159,11 @@ export default function AdminPaymentsPage() {
         row.id.toLowerCase().includes(needle);
       const matchesStatus =
         statusFilter === "all" || row.status === statusFilter;
-      return matchesQuery && matchesStatus;
+      const matchesTier =
+        tierFilter === "all" || row.accessLevel === tierFilter;
+      return matchesQuery && matchesStatus && matchesTier;
     });
-  }, [data, query, statusFilter]);
+  }, [data, query, statusFilter, tierFilter]);
 
   const metrics = data?.metrics;
   const failed = data?.failed;
@@ -267,6 +280,20 @@ export default function AdminPaymentsPage() {
                       {option.label}
                     </button>
                   ))}
+                  {TIER_FILTERS.map((option) => (
+                    <button
+                      key={option.id}
+                      onClick={() => setTierFilter(option.id)}
+                      className={cn(
+                        "px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-colors cursor-pointer",
+                        tierFilter === option.id
+                          ? "bg-violet-600 text-white"
+                          : "bg-slate-50 text-slate-500 hover:text-slate-900 border border-slate-200"
+                      )}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
                 </div>
               </div>
             </MotionItem>
@@ -321,6 +348,7 @@ export default function AdminPaymentsPage() {
                                   <span className="font-black text-slate-900">{formatAmount(payment.amountCents, payment.currency)}</span>
                                   <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">
                                     {payment.creatorName}
+                                    {payment.accessLevel ? ` · ${payment.accessLevel}` : ""}
                                   </span>
                                 </div>
                               </td>
@@ -390,13 +418,6 @@ export default function AdminPaymentsPage() {
                                         {actionPending === payment.id ? "…" : "Retry"}
                                       </Button>
                                     )}
-                                  <button
-                                    className="w-9 h-9 flex items-center justify-center rounded-xl border border-slate-200 text-slate-400 hover:text-slate-900 hover:border-slate-300 transition-all"
-                                    disabled
-                                    title="More actions land in a follow-up"
-                                  >
-                                    <MoreHorizontal className="w-4 h-4" />
-                                  </button>
                                 </div>
                               </td>
                             </tr>
@@ -501,10 +522,9 @@ export default function AdminPaymentsPage() {
                   variant="outline"
                   className="w-full h-14 bg-white text-red-700 border-red-100 hover:bg-red-50 text-[10px] font-black uppercase tracking-widest rounded-2xl transition-all"
                   icon={<ArrowRight className="w-4 h-4 ml-1" />}
-                  disabled
-                  title="Failure recovery flows arrive with the Stripe phase"
+                  onClick={() => setStatusFilter("failed")}
                 >
-                  Manage Failures
+                  Show failed charges
                 </Button>
               </div>
             </MotionReveal>

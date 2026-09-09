@@ -35,6 +35,20 @@ function cardType(content: ContentResponse): "Video" | "Article" | "PDF" | "ZIP"
   return ((content.fileSubtype || "pdf").toUpperCase() as "PDF" | "ZIP" | "RAR");
 }
 
+function parseContentDispositionFileName(header: string | null) {
+  if (!header) return "";
+  const utf = header.match(/filename\*=UTF-8''([^;]+)/i);
+  if (utf?.[1]) {
+    try {
+      return decodeURIComponent(utf[1].trim());
+    } catch {
+      return utf[1].trim();
+    }
+  }
+  const ascii = header.match(/filename="([^"]+)"/i) || header.match(/filename=([^;]+)/i);
+  return ascii?.[1]?.trim().replace(/^"+|"+$/g, "") || "";
+}
+
 export default function ContentDetailPage() {
   const params = useParams<{ contentId: string }>();
   const [content, setContent] = useState<ContentResponse | null>(null);
@@ -143,22 +157,58 @@ export default function ContentDetailPage() {
         `/api/content/${encodeURIComponent(content.id)}/download`,
         { method: "POST", cache: "no-store" }
       );
-      const data = (await res.json().catch(() => ({}))) as {
-        fileUrl?: string;
-        fileName?: string;
-        error?: string;
-        quota?: {
-          monthlyLimit: number | null;
-          remaining: number | null;
-          accessLevel: "free" | "basic" | "premium";
-          windowEnd: string;
+      const responseType = res.headers.get("content-type") || "";
+      if (responseType.includes("application/json")) {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          quota?: {
+            monthlyLimit: number | null;
+            remaining: number | null;
+            accessLevel: "free" | "basic" | "premium";
+            windowEnd: string;
+          };
         };
-      };
-      if (data.quota) setQuota(data.quota);
-      if (!res.ok || !data.fileUrl) {
+        if (data.quota) setQuota(data.quota);
         throw new Error(data.error || "Download is unavailable.");
       }
-      window.location.href = data.fileUrl;
+      if (!res.ok) {
+        throw new Error("Download is unavailable.");
+      }
+
+      const remainingHeader = res.headers.get("X-Download-Quota-Remaining");
+      const limitHeader = res.headers.get("X-Download-Quota-Limit");
+      const accessHeader = res.headers.get(
+        "X-Download-Quota-Access-Level"
+      ) as "free" | "basic" | "premium" | null;
+      const windowHeader = res.headers.get("X-Download-Quota-Window-End");
+      if (accessHeader && windowHeader) {
+        setQuota({
+          remaining:
+            remainingHeader === "unlimited" || remainingHeader == null
+              ? null
+              : Number.parseInt(remainingHeader, 10),
+          monthlyLimit:
+            limitHeader === "unlimited" || limitHeader == null
+              ? null
+              : Number.parseInt(limitHeader, 10),
+          accessLevel: accessHeader,
+          windowEnd: windowHeader,
+        });
+      }
+
+      const blob = await res.blob();
+      const fileName =
+        parseContentDispositionFileName(res.headers.get("content-disposition")) ||
+        `${content.title}.${content.fileSubtype || "bin"}`;
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = objectUrl;
+      link.download = fileName;
+      link.rel = "noopener";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(objectUrl);
     } catch (err) {
       setDownloadError(
         err instanceof Error ? err.message : "Download is unavailable."
@@ -211,8 +261,13 @@ export default function ContentDetailPage() {
       });
       const data = (await res.json().catch(() => ({}))) as {
         url?: string;
+        applied?: boolean;
         error?: string;
       };
+      if (data.applied) {
+        window.location.reload();
+        return;
+      }
       if (!res.ok || !data.url) {
         throw new Error(data.error || "Failed to start checkout.");
       }
@@ -234,10 +289,10 @@ export default function ContentDetailPage() {
         creator: item.creatorName,
         creatorSlug: item.creatorSlug,
         plan: planLabel(item.requiredPlan) as "Free" | "Basic" | "Premium",
-        isLocked: item.requiredPlan !== "free",
+        isLocked: item.accessGranted === false,
         thumbnailUrl: item.thumbnailUrl,
         href: `/library/${item.slug || item.id}`,
-        unlockHref: item.creatorSlug ? `/creators/${item.creatorSlug}` : "/pricing",
+        unlockHref: item.creatorSlug ? `/creators/${item.creatorSlug}` : "/creators",
       })),
     [relatedContent]
   );
@@ -364,7 +419,7 @@ export default function ContentDetailPage() {
               </MotionReveal>
             )}
 
-            {content.contentType === "file" && !isLocked && content.fileUrl && (
+            {content.contentType === "file" && !isLocked && (
               <MotionReveal className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8 mt-10">
                 <h3 className="text-xl font-bold font-display text-[var(--color-ink)] mb-6">Download File</h3>
                 {downloadError && (
@@ -414,7 +469,7 @@ export default function ContentDetailPage() {
                       You&apos;re seeing the preview because your current access doesn&apos;t cover this content.
                       {upgradePlan
                         ? ` Subscribe to ${upgradePlan.name} to unlock the full ${content.contentType}.`
-                        : " The creator hasn't connected a paid plan yet, so checkout isn't available."}
+                        : " This plan isn't ready for checkout yet."}
                     </p>
                   </div>
                 </div>
@@ -445,8 +500,8 @@ export default function ContentDetailPage() {
                       View creator profile
                     </Button>
                   )}
-                  <Button variant="outline" href="/pricing">
-                    Compare all plans
+                  <Button variant="outline" href="/creators">
+                    Browse creators
                   </Button>
                 </div>
               </MotionReveal>
