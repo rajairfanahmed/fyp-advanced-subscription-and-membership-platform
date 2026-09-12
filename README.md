@@ -1,8 +1,17 @@
 # Advanced Subscription & Membership Platform
 
-A full-stack membership product for a Final Year Project. Creators publish gated videos, articles, and files. Subscribers follow a creator for free or pay **that creator** for Basic or Premium access through Stripe Checkout. Admins oversee users, content, payments, and platform settings.
+<p align="center">
+  <img src="https://img.shields.io/badge/Next.js-15-000000?style=flat-square&logo=nextdotjs&logoColor=white" alt="Next.js 15" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript" />
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=flat-square&logo=postgresql&logoColor=white" alt="PostgreSQL" />
+  <img src="https://img.shields.io/badge/Clerk-6C47FF?style=flat-square&logo=clerk&logoColor=white" alt="Clerk" />
+  <img src="https://img.shields.io/badge/Stripe-635BFF?style=flat-square&logo=stripe&logoColor=white" alt="Stripe" />
+  <img src="https://img.shields.io/badge/Cloudflare_R2-F38020?style=flat-square&logo=cloudflare&logoColor=white" alt="Cloudflare R2" />
+</p>
 
-Membership is **per creator**, not a single site-wide plan. There is **no Stripe Connect** and **no platform commission** — paid Checkout charges the platform Stripe account and access is stored locally against the (subscriber, creator) pair.
+A full-stack membership platform built as a **Final Year / capstone project**. Creators publish gated video, articles, and files. Subscribers follow a creator at no cost, or pay **that creator** for Basic or Premium access through Stripe Checkout. Administrators oversee users, content, payments, and platform settings.
+
+Membership is **per creator**, not a single site-wide plan. There is **no Stripe Connect** and **no platform commission**. Paid Checkout charges the platform Stripe account; access is stored against each (subscriber, creator) pair.
 
 ---
 
@@ -11,9 +20,12 @@ Membership is **per creator**, not a single site-wide plan. There is **no Stripe
 | | |
 |---|---|
 | **Product** | Advanced Subscription & Membership Platform (ASMP) |
+| **Author** | [Raja Irfan Ahmed](https://github.com/rajairfanahmed) |
+| **Repository** | [fyp-advanced-subscription-and-membership-platform](https://github.com/rajairfanahmed/fyp-advanced-subscription-and-membership-platform) |
 | **Runtime** | Next.js 15 App Router, React 19, TypeScript |
 | **Auth** | Clerk (email/password, Google, verification, password reset) |
-| **Data** | PostgreSQL (`DATABASE_URL`) via a typed adapter under `src/lib/mongodb/` |
+| **Data** | PostgreSQL — 17 tables (`DATABASE_URL`; adapter under `src/lib/mongodb/`) |
+| **API** | 50+ Next.js App Router route handlers |
 | **Billing** | Stripe Checkout, Customer Portal, signed webhooks |
 | **Storage** | Cloudflare R2 (S3 API) for video, covers, and PDF/ZIP/RAR files |
 | **Roles** | `subscriber`, `creator`, plus admin via `ADMIN_EMAILS` |
