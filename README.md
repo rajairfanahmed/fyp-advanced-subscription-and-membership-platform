@@ -143,8 +143,8 @@ docs/                    Reserved for FYP diagrams / report assets
 ### 1. Clone and install
 
 ```bash
-git clone https://github.com/rajairfanahmed/fyp-nexora-advanced-subscription-membership-platform.git
-cd fyp-nexora-advanced-subscription-membership-platform
+git clone https://github.com/rajairfanahmed/fyp-advanced-subscription-and-membership-platform.git
+cd fyp-advanced-subscription-and-membership-platform
 npm install
 ```
 
