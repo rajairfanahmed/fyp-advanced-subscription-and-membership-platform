@@ -145,6 +145,15 @@ input[type="reset"] {
   -webkit-mask-image: linear-gradient(to right, transparent, black 1rem, black calc(100% - 1rem), transparent);
 }
 
+/* Hide the Next.js floating "N" / Dev Tools badge so it never shows on the product UI. */
+nextjs-portal,
+[data-next-badge],
+[data-next-badge-root],
+[data-nextjs-dev-overlay],
+[data-nextjs-toast] {
+  display: none !important;
+}
+
 /* ── Responsive Overflow Safety ── */
 @media (max-width: 480px) {
   .overflow-x-guard > * {

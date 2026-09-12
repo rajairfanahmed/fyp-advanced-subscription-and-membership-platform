@@ -35,8 +35,7 @@ const CONTENT_TYPES = [
   { name: "Articles", icon: "M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10a2 2 0 012 2v1m2 13a2 2 0 01-2-2V7m2 13a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4-3H9M7 16h6M7 8h6v4H7V8z" },
   { name: "PDF files", icon: "M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z M9 9h4v4H9z" },
   { name: "ZIP files", icon: "M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" },
-  { name: "Templates", icon: "M4 5a1 1 0 011-1h14a1 1 0 011 1v2a1 1 0 01-1 1H5a1 1 0 01-1-1V5zM4 13a1 1 0 011-1h6a1 1 0 011 1v6a1 1 0 01-1 1H5a1 1 0 01-1-1v-6zM16 13a1 1 0 011-1h2a1 1 0 011 1v6a1 1 0 01-1 1h-2a1 1 0 01-1-1v-6z" },
-  { name: "Private resources", icon: "M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" },
+  { name: "RAR files", icon: "M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4" },
 ];
 
 function publicContentToHomeCard(content: PublicContent): HomeContentCard {
@@ -279,7 +278,7 @@ export default function HomePage() {
               <BenefitCard
                 number="02"
                 title="Locked Content Access"
-                description="Restrict premium videos, guides, downloads, and private resources by member plan."
+                description="Restrict premium videos, articles, and downloadable files by member plan."
               />
             </MotionItem>
             <MotionItem>
@@ -300,7 +299,7 @@ export default function HomePage() {
             <h2 className="text-3xl md:text-4xl font-bold font-display text-[var(--color-ink)]">Sell any type of digital content</h2>
           </MotionReveal>
           
-          <MotionReveal className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-6" staggerChildren={0.05}>
+          <MotionReveal className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6" staggerChildren={0.05}>
             {CONTENT_TYPES.map((type, i) => (
               <MotionItem key={i} className="flex flex-col items-center justify-center p-8 rounded-2xl bg-slate-50 border border-slate-100 hover:border-emerald-200 hover:bg-emerald-50 hover:shadow-lg transition-all duration-300 group">
                 <svg className="w-10 h-10 text-slate-400 group-hover:text-emerald-500 mb-4 transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">

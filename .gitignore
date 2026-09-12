@@ -32,6 +32,8 @@ next-env.d.ts
 .env.development.local
 .env.test.local
 .env.production.local
+!.env.example
+!.env.local.example
 
 # ──────────────────────────────────────────────
 # Clerk local config (may contain secrets)
@@ -74,3 +76,5 @@ Desktop.ini
 .vercel
 *.pem
 .cursor/
+/coverage
+/.turbo
