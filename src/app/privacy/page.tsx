@@ -23,7 +23,7 @@ const PRIVACY_SECTIONS = [
   {
     id: "account-information",
     title: "3. Account Information",
-    content: "When registering as a creator or subscriber, we store your name, email address, and encrypted password. This data is used solely for authentication and necessary platform communication.",
+    content: "When you register, we store your name, email, and role. Sign-in is handled by Clerk. We do not store raw passwords. Account email is used for Clerk verification and password-reset codes.",
   },
   {
     id: "subscription-billing",
@@ -33,7 +33,7 @@ const PRIVACY_SECTIONS = [
   {
     id: "content-access",
     title: "5. Content Access Activity",
-    content: "We track which videos, articles, PDFs, and ZIP files subscribers access. This ensures that content locks are enforced properly and provides creators with aggregate metrics on content performance.",
+    content: "We track which videos, articles, and PDF, ZIP, or RAR files subscribers access so plan locks stay enforced and creators can see aggregate performance.",
   },
   {
     id: "creator-analytics",

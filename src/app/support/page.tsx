@@ -54,7 +54,7 @@ const FAQS = [
   },
   {
     question: "Can subscribers access videos and files?",
-    answer: "Yes. Advanced Subscription & Membership Platform supports video content, articles, PDF files, ZIP files, templates, and private resources.",
+    answer: "Yes. The platform supports videos, articles, and downloadable PDF, ZIP, and RAR files. Access depends on your membership with that creator.",
   },
   {
     question: "Will Stripe handle payments?",
@@ -62,7 +62,7 @@ const FAQS = [
   },
   {
     question: "Can creators publish different content types?",
-    answer: "Yes. Creators can publish videos, articles, PDFs, ZIP files, templates, and private resources.",
+    answer: "Yes. Creators can publish videos, articles, and PDF, ZIP, or RAR files, then lock each item to Free, Basic, or Premium.",
   },
   {
     question: "Do subscribers get a dashboard?",

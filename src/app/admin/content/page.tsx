@@ -140,7 +140,7 @@ export default function AdminContentPage() {
           role="admin"
           eyebrow="Asset Management"
           title="Content Library"
-          subtitle="Review videos, articles, PDFs, ZIP files, templates, private resources, and plan access rules."
+          subtitle="Review videos, articles, PDF, ZIP, and RAR files, and the plan each item requires."
           action={
             <Button
               variant="secondary"

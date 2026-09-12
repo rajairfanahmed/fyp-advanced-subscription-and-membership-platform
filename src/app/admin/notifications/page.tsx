@@ -158,7 +158,7 @@ export default function AdminNotificationsPage() {
           role="admin"
           eyebrow="Communications"
           title="System Notifications"
-          subtitle="Review renewal reminders, failed payment alerts, cancellation messages, content updates, and account notices."
+          subtitle="Review in-app billing notices, failed-payment alerts, cancellation messages, content updates, and account notices."
         />
 
         {errorMessage && (

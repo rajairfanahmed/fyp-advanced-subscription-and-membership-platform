@@ -23,7 +23,7 @@ const TERMS_SECTIONS = [
   {
     id: "creator-content",
     title: "3. Creator Content",
-    content: "Creators retain full ownership of the videos, articles, PDFs, ZIP files, and templates they upload. Advanced Subscription & Membership Platform acts purely as the hosting and access management infrastructure. Content must comply with our community guidelines and not violate any laws.",
+    content: "Creators retain full ownership of the videos, articles, and PDF, ZIP, or RAR files they upload. Advanced Subscription & Membership Platform acts as the hosting and access management infrastructure. Content must comply with our community guidelines and not violate any laws.",
   },
   {
     id: "subscriber-access",

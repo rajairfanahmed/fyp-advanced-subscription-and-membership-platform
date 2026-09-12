@@ -290,7 +290,7 @@ export default function NotificationsPage() {
             </MotionItem>
             <MotionItem>
               <p className="text-lg md:text-xl text-[var(--color-muted)] font-medium max-w-2xl leading-relaxed">
-                Review renewal reminders, billing alerts, content updates, and account messages in one place.
+                Review in-app billing notices, content updates, and account messages in one place.
               </p>
             </MotionItem>
           </MotionReveal>

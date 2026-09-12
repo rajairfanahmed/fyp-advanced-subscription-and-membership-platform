@@ -55,17 +55,17 @@ const ACCESS_LEVELS = [
   {
     title: "Free Access",
     badge: "Free",
-    description: "Free subscribers can view public previews, sample articles, and selected starter resources.",
+    description: "Follow a creator for free to open that creator’s Free videos, articles, and files.",
   },
   {
     title: "Basic Access",
     badge: "Basic",
-    description: "Basic subscribers unlock deeper guides, PDFs, ZIP files, and focused premium resources.",
+    description: "Subscribe to a creator’s Basic plan to unlock that creator’s Basic videos, articles, and PDF, ZIP, or RAR files.",
   },
   {
     title: "Premium Access",
     badge: "Premium",
-    description: "Premium subscribers unlock the full library, video content, downloads, templates, and private resources.",
+    description: "Subscribe to a creator’s Premium plan for that creator’s full catalog and unlimited downloads.",
   },
 ];
 
@@ -290,7 +290,7 @@ export default function ContentPreviewPage() {
             </MotionItem>
             <MotionItem>
               <p className="text-xl text-[var(--color-muted)] max-w-2xl mx-auto mb-12 leading-relaxed font-medium">
-                Use Advanced Subscription & Membership Platform to organise videos, articles, PDFs, ZIP files, and private resources behind plan based access.
+                Use Advanced Subscription & Membership Platform to organise videos, articles, and PDF, ZIP, or RAR files behind per-creator plan access.
               </p>
             </MotionItem>
             <MotionItem className="flex flex-col sm:flex-row justify-center items-center gap-4">

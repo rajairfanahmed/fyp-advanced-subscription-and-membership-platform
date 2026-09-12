@@ -18,7 +18,7 @@ import { cn } from "@/lib/utils";
 const PROBLEMS = [
   { icon: <CreditCard className="w-5 h-5" />, title: "Manual payment tracking." },
   { icon: <FolderLock className="w-5 h-5" />, title: "Unclear content access." },
-  { icon: <BellOff className="w-5 h-5" />, title: "Missed renewal reminders." },
+  { icon: <BellOff className="w-5 h-5" />, title: "Missed billing notices." },
   { icon: <LineChart className="w-5 h-5" />, title: "Poor engagement visibility." },
 ];
 
@@ -29,7 +29,7 @@ const SOLUTIONS = [
   },
   {
     icon: <LockKeyhole className="w-6 h-6 text-sky-500" />,
-    title: "Locked content rules for videos, articles, PDFs, ZIP files, and templates.",
+    title: "Locked content rules for videos, articles, and PDF, ZIP, or RAR files.",
   },
   {
     icon: <UserCog className="w-6 h-6 text-violet-500" />,
@@ -45,7 +45,7 @@ const AUDIENCES = [
   {
     icon: <Video className="w-6 h-6 text-emerald-500" />,
     title: "Digital Creators",
-    description: "Creators selling premium videos, guides, templates, and private resources.",
+    description: "Creators selling premium videos, articles, and downloadable files.",
   },
   {
     icon: <BookOpen className="w-6 h-6 text-sky-500" />,
@@ -128,7 +128,7 @@ export default function AboutPage() {
 
               <MotionItem>
                 <p className="text-lg md:text-xl text-[var(--color-muted)] leading-relaxed font-medium max-w-lg">
-                  Advanced Subscription & Membership Platform helps digital creators, educators, and content businesses turn videos, articles, downloads, and private resources into structured subscription experiences.
+                  Advanced Subscription & Membership Platform helps digital creators, educators, and content businesses turn videos, articles, and downloadable files into per-creator subscription experiences.
                 </p>
               </MotionItem>
             </MotionReveal>
@@ -222,7 +222,7 @@ export default function AboutPage() {
                 Creators Should Not Manage Paid Content Manually
               </h2>
               <p className="text-lg text-[var(--color-muted)] leading-relaxed">
-                Manual payments, scattered files, unclear member access, missed renewal reminders, and weak engagement tracking make paid content harder to scale.
+                Manual payments, scattered files, unclear member access, missed billing notices, and weak engagement tracking make paid content harder to scale.
               </p>
             </MotionReveal>
 

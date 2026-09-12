@@ -23,9 +23,9 @@ type PricingPlanCard = {
 };
 
 const PLAN_BEST_FOR: Record<"Free" | "Basic" | "Premium", string> = {
-  Free: "Creators and members exploring paid content workflows.",
-  Basic: "Creators selling a focused premium content library.",
-  Premium: "Creators running a complete membership business.",
+  Free: "Follow a creator and open their Free content.",
+  Basic: "Unlock that creator’s Basic videos, articles, and files.",
+  Premium: "Unlock that creator’s full catalog and unlimited downloads.",
 };
 
 const PLAN_BUTTON_LABEL: Record<"Free" | "Basic" | "Premium", string> = {
@@ -134,15 +134,15 @@ const FAQS = [
   },
   {
     question: "Will Stripe be used for payments?",
-    answer: "Yes. Stripe is connected end-to-end for recurring subscription billing — checkout, billing portal, and webhook-driven subscription status are all live.",
+    answer: "Yes. Stripe Checkout, the billing portal, and webhooks update membership status. Charges go to the platform Stripe account. There is no Stripe Connect.",
   },
   {
     question: "Can content be locked by plan?",
-    answer: "Yes. Videos, articles, PDF files, ZIP files, and private resources can be assigned to specific plans.",
+    answer: "Yes. Videos, articles, and PDF, ZIP, or RAR files can be assigned to Free, Basic, or Premium on that creator.",
   },
   {
     question: "Is this only for video content?",
-    answer: "No. Advanced Subscription & Membership Platform supports videos, articles, downloadable files, templates, and private resources.",
+    answer: "No. Creators can publish videos, articles, and downloadable PDF, ZIP, and RAR files.",
   },
   {
     question: "Will subscribers get a dashboard?",

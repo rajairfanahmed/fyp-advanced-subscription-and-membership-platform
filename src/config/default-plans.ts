@@ -17,7 +17,7 @@ export type DefaultCreatorPlan = {
  * These match the platform-wide tiers used elsewhere in the UI:
  *  - Free    : Public previews only.
  *  - Basic   : Paid library, articles, downloadable resources.
- *  - Premium : Full library, templates, private resources.
+ *  - Premium : Full library and unlimited downloads from that creator.
  */
 export const DEFAULT_CREATOR_PLANS: DefaultCreatorPlan[] = [
   {
@@ -49,7 +49,7 @@ export const DEFAULT_CREATOR_PLANS: DefaultCreatorPlan[] = [
   {
     name: "Premium",
     slug: "premium",
-    description: "Full library, templates, and private resources.",
+    description: "Full library and unlimited downloads from this creator.",
     priceMonthly: 49,
     accessLevel: "premium",
     features: [
