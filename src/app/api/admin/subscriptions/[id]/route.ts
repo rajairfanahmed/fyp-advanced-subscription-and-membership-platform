@@ -1,7 +1,13 @@
 import { isRecordId } from "@/lib/db/ids";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requireAdminContext } from "@/lib/auth/require-admin";
+import { adminErrorJson } from "@/lib/auth/admin-http";
+import {
+  assertConfirmationPhrase,
+  auditAdmin,
+  confirmationPhraseOf,
+  requireAdminMutation,
+} from "@/lib/auth/require-admin";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   PlanModel,
@@ -18,10 +24,10 @@ import type { PlanAccessLevel } from "@/types/plan";
 
 type Body = {
   action?: string;
-  // For action === "extend"
   extendDays?: number;
-  // For action === "changePlan"
   planId?: string;
+  when?: "now" | "period_end";
+  confirmationPhrase?: string;
 };
 
 /**
@@ -40,7 +46,7 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAdminContext();
+    const ctx = await requireAdminMutation(req);
     await connectToMongoDB();
 
     const { id } = await context.params;
@@ -71,6 +77,22 @@ export async function PATCH(
     let notificationMessage = "";
 
     if (action === "cancel") {
+      const when = String(body.when ?? "now").toLowerCase() === "period_end"
+        ? "period_end"
+        : "now";
+      if (when === "now") {
+        assertConfirmationPhrase(
+          confirmationPhraseOf(body),
+          "CANCEL NOW",
+          "Type CANCEL NOW to end this membership immediately."
+        );
+      } else {
+        assertConfirmationPhrase(
+          confirmationPhraseOf(body),
+          "PERIOD END",
+          "Type PERIOD END to cancel at the end of the current period."
+        );
+      }
       if (sub.stripeSubscriptionId) {
         if (!isStripeConfigured()) {
           return NextResponse.json(
@@ -79,8 +101,15 @@ export async function PATCH(
           );
         }
         try {
-          const stripe = getStripeClient();
-          await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+          if (when === "period_end") {
+            const { cancelStripeSubscriptionAtPeriodEnd } = await import(
+              "@/lib/stripe/subscription-ops"
+            );
+            await cancelStripeSubscriptionAtPeriodEnd(sub.stripeSubscriptionId);
+          } else {
+            const stripe = getStripeClient();
+            await stripe.subscriptions.cancel(sub.stripeSubscriptionId);
+          }
         } catch (error) {
           console.error("[admin:sub:cancel:stripe]", error);
           return NextResponse.json(
@@ -92,12 +121,19 @@ export async function PATCH(
           );
         }
       }
-      sub.status = "canceled";
-      sub.canceledAt = new Date();
-      sub.cancelAtPeriodEnd = false;
-      notificationTitle = "Subscription cancelled by admin";
-      notificationMessage =
-        "Your subscription has been cancelled by Advanced Subscription & Membership Platform support. Contact us if this was unexpected.";
+      if (when === "period_end" && sub.accessLevel !== "free") {
+        sub.cancelAtPeriodEnd = true;
+        notificationTitle = "Cancellation scheduled";
+        notificationMessage =
+          "Advanced Subscription & Membership Platform support scheduled this membership to end at the close of the current billing period. You keep access until then.";
+      } else {
+        sub.status = "canceled";
+        sub.canceledAt = new Date();
+        sub.cancelAtPeriodEnd = false;
+        notificationTitle = "Subscription cancelled by admin";
+        notificationMessage =
+          "Your subscription has been cancelled by Advanced Subscription & Membership Platform support. Contact us if this was unexpected.";
+      }
     } else if (action === "reactivate") {
       if (sub.accessLevel !== "free" && !sub.stripeSubscriptionId) {
         return NextResponse.json(
@@ -226,8 +262,23 @@ export async function PATCH(
             );
             await cancelStripeSubscriptionNow(sub.stripeSubscriptionId);
           } catch (error) {
-            console.warn("[admin:sub:changePlan:cancel-stripe]", error);
+            console.error("[admin:sub:changePlan:cancel-stripe]", error);
+            return NextResponse.json(
+              {
+                error:
+                  "Stripe could not cancel the paid subscription. Local plan was not changed to Free.",
+              },
+              { status: 502 }
+            );
           }
+        } else if (sub.stripeSubscriptionId && !isStripeConfigured()) {
+          return NextResponse.json(
+            {
+              error:
+                "Stripe is not configured. Local plan was not changed to Free.",
+            },
+            { status: 502 }
+          );
         }
         sub.stripeSubscriptionId = "";
         sub.priceMonthly = 0;
@@ -292,6 +343,13 @@ export async function PATCH(
       }
     }
 
+    await auditAdmin(ctx, req, {
+      action: `subscription.${action}`,
+      targetType: "subscription",
+      targetId: sub._id.toString(),
+      payload: { status: sub.status, accessLevel: sub.accessLevel },
+    });
+
     return NextResponse.json(
       {
         ok: true,
@@ -311,15 +369,7 @@ export async function PATCH(
         { status: 503 }
       );
     }
-    const message =
-      error instanceof Error ? error.message : "Failed to update subscription.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:sub:patch]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to update subscription.");
   }
 }

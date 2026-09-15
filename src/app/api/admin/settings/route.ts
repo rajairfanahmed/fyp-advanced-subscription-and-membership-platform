@@ -1,7 +1,14 @@
 import { NextResponse } from "next/server";
 import { revalidateTag } from "next/cache";
 
-import { requireAdminContext } from "@/lib/auth/require-admin";
+import { adminErrorJson } from "@/lib/auth/admin-http";
+import {
+  assertConfirmationPhrase,
+  auditAdmin,
+  confirmationPhraseOf,
+  requireAdminContext,
+  requireAdminMutation,
+} from "@/lib/auth/require-admin";
 import {
   loadPlatformSettings,
   updatePlatformSettings,
@@ -17,44 +24,44 @@ export async function GET() {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load settings.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:settings GET]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to load settings.");
   }
 }
 
 export async function PATCH(request: Request) {
   try {
-    await requireAdminContext();
-    const body = (await request.json().catch(() => ({}))) as AdminPlatformSettingsInput;
+    const ctx = await requireAdminMutation(request);
+    const body = (await request.json().catch(() => ({}))) as AdminPlatformSettingsInput & {
+      confirmationPhrase?: string;
+    };
+    if (body.maintenanceMode === true) {
+      assertConfirmationPhrase(
+        confirmationPhraseOf(body),
+        "MAINTENANCE",
+        "Type MAINTENANCE to enable maintenance mode."
+      );
+    }
     const data = await updatePlatformSettings(body);
     if (typeof body?.maintenanceMode === "boolean") {
-      // Drop the middleware's cached maintenance flag so the new
-      // value applies on the next request without waiting 30s.
       try {
         revalidateTag("platform-maintenance");
       } catch (error) {
         console.warn("[admin:settings:revalidate]", error);
       }
     }
+    await auditAdmin(ctx, request, {
+      action: "settings.update",
+      targetType: "settings",
+      payload: {
+        keys: Object.keys(body).filter((key) => key !== "confirmationPhrase"),
+        maintenanceMode: data.maintenanceMode,
+        platformFeeBps: data.platformFeeBps,
+      },
+    });
     return NextResponse.json(data, { status: 200 });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to update settings.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:settings PATCH]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to update settings.");
   }
 }

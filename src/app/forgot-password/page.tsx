@@ -9,7 +9,10 @@ import { Container } from "@/components/layout/Container";
 import { MotionReveal, MotionItem } from "@/components/ui/MotionReveal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { FormField } from "@/components/forms/FormField";
 import { ArrowRight, ChevronLeft, Loader2, CheckCircle2 } from "lucide-react";
+import { assertAuthThrottle } from "@/lib/auth/auth-throttle";
+import { validateEmail } from "@/lib/auth/form-validation";
 
 export default function ForgotPasswordPage() {
   const router = useRouter();
@@ -17,6 +20,7 @@ export default function ForgotPasswordPage() {
   const { isSignedIn } = useAuth();
 
   const [email, setEmail] = useState("");
+  const [emailError, setEmailError] = useState<string | undefined>();
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [codeSent, setCodeSent] = useState(false);
@@ -50,35 +54,37 @@ export default function ForgotPasswordPage() {
       return;
     }
 
-    if (!email.trim()) {
-      setError("Please enter your email address.");
-      return;
-    }
+    const nextEmailError = validateEmail(email) ?? undefined;
+    setEmailError(nextEmailError);
+    if (nextEmailError) return;
 
     setError("");
     setIsSubmitting(true);
 
     try {
-      // Start the Clerk password reset flow — sends a reset code to email
-      await signIn.create({
-        strategy: "reset_password_email_code",
-        identifier: email,
-      });
+      const gated = await assertAuthThrottle("forgot-password");
+      if (!gated.ok) {
+        setError(gated.message);
+        return;
+      }
 
-      // Store email in sessionStorage so reset-password page can use it
-      sessionStorage.setItem("platform_reset_email", email);
+      try {
+        await signIn.create({
+          strategy: "reset_password_email_code",
+          identifier: email.trim().toLowerCase(),
+        });
+      } catch {
+        // Identical success path whether or not the email exists.
+      }
+
+      sessionStorage.setItem("platform_reset_email", email.trim().toLowerCase());
       setCodeSent(true);
 
-      // Redirect to reset-password page after a brief success state
       setTimeout(() => {
-        router.push(`/reset-password?email=${encodeURIComponent(email)}`);
+        router.push("/reset-password");
       }, 1500);
-    } catch (err: unknown) {
-      const clerkError = err as { errors?: { message: string }[] };
-      setError(
-        clerkError.errors?.[0]?.message ||
-        "We could not send a reset code. Please try again."
-      );
+    } catch {
+      setError("We could not send a reset code. Please try again.");
     } finally {
       setIsSubmitting(false);
     }
@@ -99,8 +105,8 @@ export default function ForgotPasswordPage() {
               Back to Login
             </Link>
             <Badge variant="default" className="mb-4 mx-auto">Account Recovery</Badge>
-            <h1 className="text-4xl md:text-5xl font-black font-display text-[var(--color-ink)] mb-4 tracking-tight">
-              Reset Your Password
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black font-display text-[var(--color-ink)] mb-4 tracking-tight">
+              Reset your password
             </h1>
             <p className="text-lg text-[var(--color-muted)] font-medium leading-relaxed">
               Enter your account email and we will send a secure reset code.
@@ -108,7 +114,7 @@ export default function ForgotPasswordPage() {
           </MotionItem>
 
           <MotionItem className="w-full">
-            <div className="bg-white rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 p-8 md:p-10 relative overflow-hidden text-left">
+            <div className="bg-white rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 p-5 sm:p-8 md:p-10 relative overflow-hidden text-left">
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-violet-400 to-sky-400" />
 
               {/* Error Message */}
@@ -122,22 +128,27 @@ export default function ForgotPasswordPage() {
               {codeSent && (
                 <div className="mb-6 p-4 bg-emerald-50 border border-emerald-200 rounded-xl text-sm font-medium text-emerald-700 flex items-center gap-3">
                   <CheckCircle2 className="w-5 h-5 text-emerald-500 shrink-0" />
-                  Reset code sent! Redirecting to reset page...
+                  If an account exists for that email, a reset code is on its way. Redirecting…
                 </div>
               )}
 
-              <form className="space-y-6" onSubmit={handleFormSubmit}>
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">Email Address</label>
-                  <input
-                    type="email"
-                    placeholder="jane@example.com"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    disabled={codeSent}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500 transition-all font-medium text-[var(--color-ink)] disabled:opacity-50"
-                  />
-                </div>
+              <form className="space-y-6" onSubmit={handleFormSubmit} noValidate>
+                <FormField
+                  id="forgot-email"
+                  label="Email Address"
+                  type="email"
+                  autoComplete="email"
+                  placeholder="jane@example.com"
+                  value={email}
+                  tone="violet"
+                  disabled={codeSent}
+                  error={emailError}
+                  onChange={(e) => {
+                    setEmail(e.target.value);
+                    if (emailError) setEmailError(validateEmail(e.target.value) ?? undefined);
+                  }}
+                  onBlur={() => setEmailError(validateEmail(email) ?? undefined)}
+                />
 
                 <div className="pt-2">
                   <Button
@@ -145,7 +156,7 @@ export default function ForgotPasswordPage() {
                     variant="primary"
                     size="lg"
                     className="w-full bg-violet-600 hover:bg-violet-700"
-                    disabled={isSubmitting || codeSent}
+                    disabled={isSubmitting || codeSent || !isLoaded}
                     icon={isSubmitting ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <ArrowRight className="w-4 h-4 ml-1" />}
                   >
                     {isSubmitting ? "Sending code..." : codeSent ? "Code Sent!" : "Send Reset Code"}

@@ -5,6 +5,7 @@ import MainNav from "@/components/navigation/MainNav";
 import Footer from "@/components/layout/Footer";
 import { SmoothScroll } from "@/components/layout/SmoothScroll";
 import { Cursor } from "@/components/ui/Cursor";
+import { TopProgressBar } from "@/components/ui/TopProgressBar";
 import { siteConfig } from "@/config/site";
 import "./globals.css";
 
@@ -40,7 +41,6 @@ export const viewport: Viewport = {
   themeColor: "#FCFCF9",
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
 };
 
 export default function RootLayout({
@@ -57,6 +57,7 @@ export default function RootLayout({
     >
       <html lang="en" className={`${syne.variable} ${manrope.variable}`} suppressHydrationWarning>
         <body suppressHydrationWarning>
+          <TopProgressBar />
           <a
             href="#main-content"
             className="sr-only focus:not-sr-only focus:absolute focus:top-4 focus:left-4 focus:z-[100] focus:px-4 focus:py-2 focus:bg-[var(--color-ink)] focus:text-white focus:rounded-xl focus:font-bold focus:text-sm focus:outline-none focus:ring-2 focus:ring-emerald-400 focus:ring-offset-2"
@@ -66,7 +67,7 @@ export default function RootLayout({
           <SmoothScroll>
             <Cursor />
             <MainNav />
-            <main id="main-content">{children}</main>
+            <main id="main-content" className="min-w-0 max-w-full overflow-x-clip">{children}</main>
             <Footer />
           </SmoothScroll>
         </body>

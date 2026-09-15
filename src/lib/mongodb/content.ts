@@ -6,6 +6,7 @@ import {
   ensureCurrentUserProfile,
 } from "@/lib/auth/profile-sync";
 import { isAdminEmail } from "@/lib/auth/roles";
+import { blockedAccountIds, isAccountBlocked } from "@/lib/account/status";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   ContentModel,
@@ -15,8 +16,13 @@ import {
   type ContentDocument,
   type CreatorProfileDocument,
 } from "@/lib/mongodb/models";
-import { deleteFromCloudflareR2 } from "@/lib/storage";
+import { deleteFromCloudflareR2, storageKeyBelongsToUser } from "@/lib/storage";
 import { recalcCreatorContentCount } from "@/lib/mongodb/creator-counts";
+import {
+  accessRank,
+  rankMeetsRequired,
+  subscriptionGrantsAccess,
+} from "@/lib/membership/access";
 import type {
   ContentResponse,
   ContentStatus,
@@ -31,21 +37,18 @@ const ACCESS_RANK: Record<RequiredPlan, number> = {
   premium: 2,
 };
 
-/** Subscription rows that still grant paid content access (incl. Stripe grace). */
-const PAID_ACCESS_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
-
 async function subscriberMaxAccessRankByCreator(subscriberClerkUserId: string): Promise<Map<string, number>> {
   const subs = await SubscriptionModel.find({
     subscriberClerkUserId,
-    status: { $in: [...PAID_ACCESS_SUBSCRIPTION_STATUSES] },
   })
-    .select({ creatorClerkUserId: 1, accessLevel: 1 })
+    .select({ creatorClerkUserId: 1, accessLevel: 1, status: 1, currentPeriodEnd: 1 })
     .lean();
 
   const map = new Map<string, number>();
   for (const sub of subs) {
+    if (!subscriptionGrantsAccess(sub)) continue;
     const cid = sub.creatorClerkUserId as string;
-    const rank = ACCESS_RANK[(sub.accessLevel as RequiredPlan) ?? "free"] ?? 0;
+    const rank = accessRank(sub.accessLevel as string);
     const prev = map.get(cid) ?? 0;
     if (rank > prev) map.set(cid, rank);
   }
@@ -57,13 +60,24 @@ function computeLibraryListAccess(input: {
   creatorClerkUserId: string;
   viewerClerkUserId?: string | null;
   viewerIsAdmin: boolean;
+  viewerBlocked: boolean;
+  creatorBlocked: boolean;
   subRanks: Map<string, number>;
 }): boolean {
-  const { requiredPlan, creatorClerkUserId, viewerClerkUserId, viewerIsAdmin, subRanks } = input;
+  const {
+    requiredPlan,
+    creatorClerkUserId,
+    viewerClerkUserId,
+    viewerIsAdmin,
+    viewerBlocked,
+    creatorBlocked,
+    subRanks,
+  } = input;
+  if (viewerIsAdmin) return true;
+  if (viewerBlocked || creatorBlocked) return false;
   if (requiredPlan === "free") return true;
   if (!viewerClerkUserId) return false;
   if (viewerClerkUserId === creatorClerkUserId) return true;
-  if (viewerIsAdmin) return true;
   const requiredRank = ACCESS_RANK[requiredPlan] ?? 0;
   const subRank = subRanks.get(creatorClerkUserId) ?? 0;
   return subRank >= requiredRank;
@@ -199,6 +213,40 @@ export function parseContentSavePayload(input: unknown): ContentSavePayload {
   };
 }
 
+/**
+ * Internal media locators after the caller has already passed the access
+ * guard. Never serialize this onto a subscriber JSON response.
+ */
+export async function getPublishedMediaKeys(contentId: string): Promise<{
+  contentType: ContentType;
+  title: string;
+  videoProvider: string;
+  videoKey: string;
+  videoUrl: string;
+  externalVideoUrl: string;
+  fileKey: string;
+  fileUrl: string;
+  fileSubtype: string;
+} | null> {
+  await connectToMongoDB();
+  const query: Record<string, unknown> = isRecordId(contentId)
+    ? { _id: contentId, status: "published" }
+    : { slug: slugify(contentId), status: "published" };
+  const content = await ContentModel.findOne(query);
+  if (!content) return null;
+  return {
+    contentType: content.contentType as ContentType,
+    title: content.title,
+    videoProvider: content.videoProvider || "upload",
+    videoKey: content.videoKey || "",
+    videoUrl: content.videoUrl || "",
+    externalVideoUrl: content.externalVideoUrl || "",
+    fileKey: content.fileKey || "",
+    fileUrl: content.fileUrl || "",
+    fileSubtype: content.fileSubtype || "",
+  };
+}
+
 function slugify(value: string) {
   return value
     .toLowerCase()
@@ -234,8 +282,23 @@ async function createUniqueContentSlug(title: string, clerkUserId: string, exist
   return candidate;
 }
 
-async function safelyDeleteObject(key: string | undefined) {
+function assertOwnedAsset(
+  asset: UploadedAsset | null | undefined,
+  clerkUserId: string,
+  label: string
+) {
+  if (!asset?.key) return;
+  if (!storageKeyBelongsToUser(asset.key, clerkUserId)) {
+    throw new Error(`${label} is not valid for this account.`);
+  }
+}
+
+async function safelyDeleteObject(key: string | undefined, clerkUserId: string) {
   if (!key) return;
+  if (!storageKeyBelongsToUser(key, clerkUserId)) {
+    console.warn("[content:storage-delete] skipped foreign key");
+    return;
+  }
   try {
     await deleteFromCloudflareR2(key);
   } catch (error) {
@@ -296,26 +359,20 @@ export async function serializeContent(content: ContentDocument): Promise<Conten
   };
 }
 
-/** Blank paid media so list APIs cannot leak Basic/Premium URLs. */
-function redactPaidMedia(serialized: ContentResponse): ContentResponse {
+/** Never ship object URLs/keys to the library client. Playback and download are gated routes. */
+function redactSubscriberMedia(
+  serialized: ContentResponse,
+  accessGranted: boolean
+): ContentResponse {
   return {
     ...serialized,
     videoUrl: "",
     videoKey: "",
+    fileUrl: "",
+    fileKey: "",
+    thumbnailKey: "",
     externalVideoUrl: "",
-    fileUrl: "",
-    fileKey: "",
-    articleBody: "",
-  };
-}
-
-/** Never hand the public R2 file URL to the library client. */
-function hideDirectFileDownload(serialized: ContentResponse): ContentResponse {
-  if (serialized.contentType !== "file") return serialized;
-  return {
-    ...serialized,
-    fileUrl: "",
-    fileKey: "",
+    articleBody: accessGranted ? serialized.articleBody : "",
   };
 }
 
@@ -334,15 +391,20 @@ export async function listPublishedContent(options?: { viewerClerkUserId?: strin
 
   const viewer = options?.viewerClerkUserId;
   let viewerIsAdmin = false;
+  let viewerBlocked = false;
   let subRanks = new Map<string, number>();
   if (viewer) {
     const profile = await UserProfileModel.findOne({ clerkUserId: viewer });
     if (profile?.email && isAdminEmail(profile.email)) {
       viewerIsAdmin = true;
     } else {
+      viewerBlocked = isAccountBlocked(profile?.accountStatus);
       subRanks = await subscriberMaxAccessRankByCreator(viewer);
     }
   }
+  const blockedCreators = await blockedAccountIds(
+    content.map((doc) => doc.creatorClerkUserId)
+  );
 
   return Promise.all(
     content.map(async (doc) => {
@@ -353,12 +415,12 @@ export async function listPublishedContent(options?: { viewerClerkUserId?: strin
         creatorClerkUserId: doc.creatorClerkUserId,
         viewerClerkUserId: viewer,
         viewerIsAdmin,
+        viewerBlocked,
+        creatorBlocked: blockedCreators.has(doc.creatorClerkUserId),
         subRanks,
       });
       return {
-        ...(accessGranted
-          ? hideDirectFileDownload(serialized)
-          : redactPaidMedia(serialized)),
+        ...redactSubscriberMedia(serialized, accessGranted),
         accessGranted,
       };
     })
@@ -380,15 +442,18 @@ export async function listPublishedContentByCreatorSlug(
 
   const viewer = options?.viewerClerkUserId;
   let viewerIsAdmin = false;
+  let viewerBlocked = false;
   let subRanks = new Map<string, number>();
   if (viewer) {
     const profile = await UserProfileModel.findOne({ clerkUserId: viewer });
     if (profile?.email && isAdminEmail(profile.email)) {
       viewerIsAdmin = true;
     } else {
+      viewerBlocked = isAccountBlocked(profile?.accountStatus);
       subRanks = await subscriberMaxAccessRankByCreator(viewer);
     }
   }
+  const blockedCreators = await blockedAccountIds([creatorProfile.clerkUserId]);
 
   return Promise.all(
     content.map(async (doc) => {
@@ -399,12 +464,12 @@ export async function listPublishedContentByCreatorSlug(
         creatorClerkUserId: doc.creatorClerkUserId,
         viewerClerkUserId: viewer,
         viewerIsAdmin,
+        viewerBlocked,
+        creatorBlocked: blockedCreators.has(doc.creatorClerkUserId),
         subRanks,
       });
       return {
-        ...(accessGranted
-          ? hideDirectFileDownload(serialized)
-          : redactPaidMedia(serialized)),
+        ...redactSubscriberMedia(serialized, accessGranted),
         accessGranted,
       };
     })
@@ -427,7 +492,9 @@ export async function getPublishedContentByIdOrSlug(contentId: string) {
     ? { _id: contentId, status: "published" }
     : { slug: slugify(contentId), status: "published" };
   const content = await ContentModel.findOne(query);
-  return content ? serializeContent(content) : null;
+  if (!content) return null;
+  const serialized = await serializeContent(content);
+  return redactSubscriberMedia(serialized, false);
 }
 
 export type GuardedContentResponse = ContentResponse & {
@@ -438,19 +505,16 @@ export type GuardedContentResponse = ContentResponse & {
    * urls. Mirrors `requiredPlan` for ergonomics on the client.
    */
   requiredAccessLevel: RequiredPlan;
+  denyReason?: "viewer_blocked" | "creator_blocked" | "plan";
 };
 
 /**
- * Public-facing fetch with a real access guard. Anyone can pull
+ * Public-facing fetch with a real access guard. Anyone signed in can pull
  * metadata (title, description, thumbnail, summaries) for published
- * content, but `videoUrl`, `fileUrl`, `externalVideoUrl` and the full
- * `articleBody` are blanked out unless the viewer has either
- *   - the role of admin (ADMIN_EMAILS), or
- *   - is the creator who owns the content, or
- *   - holds a subscription with this creator in `active`, `trialing`, or
- *     `past_due` (grace) status at a tier that meets/exceeds `requiredPlan`.
- *
- * The free tier always passes for free content.
+ * content, but object URLs/keys are never returned. `articleBody` is
+ * included only when the viewer is the owner, an admin, or holds a live
+ * membership at a tier that meets `requiredPlan`. Playback and download
+ * go through authenticated routes.
  */
 export async function getGuardedPublishedContent(
   contentId: string
@@ -464,49 +528,55 @@ export async function getGuardedPublishedContent(
 
   const serialized = await serializeContent(content);
   const requiredPlan = content.requiredPlan as RequiredPlan;
-  const requiredRank = ACCESS_RANK[requiredPlan] ?? 0;
+  const { userId } = await auth();
+  const creatorBlocked = (
+    await blockedAccountIds([content.creatorClerkUserId])
+  ).has(content.creatorClerkUserId);
 
-  let accessGranted = requiredPlan === "free";
-
-  if (!accessGranted) {
-    const { userId } = await auth();
-    if (userId) {
-      // Owners and admins always pass.
-      if (userId === content.creatorClerkUserId) {
+  let accessGranted = false;
+  let denyReason: GuardedContentResponse["denyReason"];
+  if (userId) {
+    const profile = await UserProfileModel.findOne({ clerkUserId: userId });
+    const viewerIsAdmin = Boolean(profile?.email && isAdminEmail(profile.email));
+    const viewerBlocked = !viewerIsAdmin && isAccountBlocked(profile?.accountStatus);
+    if (viewerIsAdmin) {
+      accessGranted = true;
+    } else if (viewerBlocked) {
+      denyReason = "viewer_blocked";
+    } else if (creatorBlocked) {
+      denyReason = "creator_blocked";
+    } else if (userId === content.creatorClerkUserId || requiredPlan === "free") {
+      accessGranted = true;
+    } else {
+      const sub = await SubscriptionModel.findOne({
+        subscriberClerkUserId: userId,
+        creatorClerkUserId: content.creatorClerkUserId,
+      })
+        .sort({ updatedAt: -1 })
+        .lean();
+      if (
+        sub &&
+        subscriptionGrantsAccess(sub) &&
+        rankMeetsRequired(sub.accessLevel as string, requiredPlan)
+      ) {
         accessGranted = true;
       } else {
-        const profile = await UserProfileModel.findOne({ clerkUserId: userId });
-        if (profile?.email && isAdminEmail(profile.email)) {
-          accessGranted = true;
-        } else {
-          const sub = await SubscriptionModel.findOne({
-            subscriberClerkUserId: userId,
-            creatorClerkUserId: content.creatorClerkUserId,
-            status: { $in: [...PAID_ACCESS_SUBSCRIPTION_STATUSES] },
-          })
-            .sort({ updatedAt: -1 })
-            .lean();
-          if (sub) {
-            const subRank = ACCESS_RANK[sub.accessLevel as RequiredPlan] ?? 0;
-            if (subRank >= requiredRank) accessGranted = true;
-          }
-        }
+        denyReason = "plan";
       }
     }
-  }
-
-  if (!accessGranted) {
-    return {
-      ...redactPaidMedia(serialized),
-      accessGranted: false,
-      requiredAccessLevel: requiredPlan,
-    };
+  } else if (creatorBlocked) {
+    denyReason = "creator_blocked";
+  } else if (requiredPlan === "free") {
+    accessGranted = true;
+  } else {
+    denyReason = "plan";
   }
 
   return {
-    ...hideDirectFileDownload(serialized),
-    accessGranted: true,
+    ...redactSubscriberMedia(serialized, accessGranted),
+    accessGranted,
     requiredAccessLevel: requiredPlan,
+    ...(denyReason ? { denyReason } : {}),
   };
 }
 
@@ -570,6 +640,9 @@ export async function createCreatorContent(payload: ContentSavePayload) {
   const context = await requireCreatorContext();
 
   validateSavePayload({ payload, isCreate: true });
+  assertOwnedAsset(payload.thumbnail, context.clerkUserId, "Thumbnail");
+  assertOwnedAsset(payload.videoFile, context.clerkUserId, "Video file");
+  assertOwnedAsset(payload.file, context.clerkUserId, "Downloadable file");
 
   const content = await ContentModel.create({
     creatorClerkUserId: context.clerkUserId,
@@ -628,6 +701,9 @@ export async function updateCreatorContent(
     hasExistingThumbnail: Boolean(content.thumbnailUrl),
     isCreate: false,
   });
+  assertOwnedAsset(payload.thumbnail, context.clerkUserId, "Thumbnail");
+  assertOwnedAsset(payload.videoFile, context.clerkUserId, "Video file");
+  assertOwnedAsset(payload.file, context.clerkUserId, "Downloadable file");
 
   const wasPublished = content.status === "published";
   const wasArchived = content.status === "archived";
@@ -652,14 +728,14 @@ export async function updateCreatorContent(
   }
 
   if (payload.thumbnail) {
-    await safelyDeleteObject(content.thumbnailKey);
+    await safelyDeleteObject(content.thumbnailKey, context.clerkUserId);
     content.thumbnailUrl = payload.thumbnail.url;
     content.thumbnailKey = payload.thumbnail.key;
   }
 
   if (payload.contentType === "video") {
     if (payload.videoFile) {
-      await safelyDeleteObject(content.videoKey);
+      await safelyDeleteObject(content.videoKey, context.clerkUserId);
       content.videoUrl = payload.videoFile.url;
       content.videoKey = payload.videoFile.key;
       content.externalVideoUrl = "";
@@ -678,8 +754,8 @@ export async function updateCreatorContent(
   }
 
   if (payload.contentType === "article") {
-    if (content.videoKey) await safelyDeleteObject(content.videoKey);
-    if (content.fileKey) await safelyDeleteObject(content.fileKey);
+    if (content.videoKey) await safelyDeleteObject(content.videoKey, context.clerkUserId);
+    if (content.fileKey) await safelyDeleteObject(content.fileKey, context.clerkUserId);
     content.articleBody = payload.articleBody ?? "";
     content.articleSummary = payload.articleSummary ?? "";
     content.videoUrl = "";
@@ -695,7 +771,7 @@ export async function updateCreatorContent(
   if (payload.contentType === "file") {
     content.fileSubtype = payload.fileSubtype ?? "pdf";
     if (payload.file) {
-      await safelyDeleteObject(content.fileKey);
+      await safelyDeleteObject(content.fileKey, context.clerkUserId);
       content.fileUrl = payload.file.url;
       content.fileKey = payload.file.key;
       content.fileSizeLabel = payload.file.sizeBytes
@@ -807,9 +883,9 @@ export async function deleteCreatorContent(contentId: string): Promise<{ id: str
   if (!content) return null;
 
   await Promise.all([
-    safelyDeleteObject(content.thumbnailKey),
-    safelyDeleteObject(content.videoKey),
-    safelyDeleteObject(content.fileKey),
+    safelyDeleteObject(content.thumbnailKey, context.clerkUserId),
+    safelyDeleteObject(content.videoKey, context.clerkUserId),
+    safelyDeleteObject(content.fileKey, context.clerkUserId),
   ]);
 
   try {

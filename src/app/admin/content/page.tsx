@@ -15,6 +15,8 @@ import {
   TrendingUp,
   AlertCircle,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import type {
   AdminContentResponse,
@@ -56,16 +58,28 @@ export default function AdminContentPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
   const [typeFilter, setTypeFilter] =
     useState<(typeof TYPE_FILTERS)[number]["id"]>("all");
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
 
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQuery]);
+
   const loadContent = React.useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
     try {
-      const res = await fetch("/api/admin/content", { cache: "no-store" });
+      const params = new URLSearchParams({
+        page: String(page),
+        q: debouncedQuery,
+      });
+      const res = await fetch(`/api/admin/content?${params.toString()}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error || "Failed to load content.");
@@ -79,7 +93,7 @@ export default function AdminContentPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, debouncedQuery]);
 
   useEffect(() => {
     loadContent();
@@ -322,7 +336,7 @@ export default function AdminContentPage() {
                               : `${formatNumber(item.viewsCount)} views`}
                           </td>
                           <td className="p-8 text-right">
-                            <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center justify-end gap-2 opacity-100 transition-opacity">
                               {item.status !== "published" && (
                                 <Button
                                   variant="outline"
@@ -415,6 +429,7 @@ export default function AdminContentPage() {
                     </div>
                   ))}
                 </div>
+                <AdminPager page={data?.page} onPage={setPage} />
               </>
             )}
           </div>

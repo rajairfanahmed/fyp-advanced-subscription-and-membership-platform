@@ -1,21 +1,27 @@
 "use client";
 
 import React from "react";
+import { useAuth } from "@clerk/nextjs";
 import { Container } from "@/components/layout/Container";
 import { MotionReveal, MotionItem } from "@/components/ui/MotionReveal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 import { LockKeyhole, ArrowRight, CheckCircle2, ChevronLeft, Zap } from "lucide-react";
 import Link from "next/link";
+import { loginHref } from "@/lib/auth/post-login-redirect";
 
 export default function LockedContentPage() {
+  const { isLoaded, isSignedIn } = useAuth();
+  const libraryHref = isLoaded && isSignedIn ? "/library" : loginHref("/library");
+  const creatorsHref = "/creators";
+
   return (
     <div className="flex flex-col min-h-screen pt-32 pb-20 lg:pt-40 bg-[var(--color-paper)]">
       
       <Container className="max-w-4xl">
         {/* Back Button */}
         <MotionReveal className="mb-12">
-          <Link href="/library" className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-[var(--color-ink)] transition-colors">
+          <Link href={isLoaded && isSignedIn ? "/library" : "/creators"} className="inline-flex items-center gap-2 text-sm font-bold text-slate-500 hover:text-[var(--color-ink)] transition-colors">
             <ChevronLeft className="w-4 h-4" />
             Back to Library
           </Link>
@@ -91,11 +97,11 @@ export default function LockedContentPage() {
 
             {/* CTAs */}
             <MotionItem className="flex flex-col sm:flex-row justify-center items-center gap-4">
-              <Button variant="primary" size="lg" href="/creators" className="w-full sm:w-auto min-w-[200px]">
+              <Button variant="primary" size="lg" href={creatorsHref} className="w-full sm:w-auto min-w-[200px]">
                 Browse Creators
               </Button>
-              <Button variant="secondary" size="lg" href="/library" className="w-full sm:w-auto min-w-[200px]">
-                Back To Library
+              <Button variant="secondary" size="lg" href={libraryHref} className="w-full sm:w-auto min-w-[200px]">
+                {isLoaded && isSignedIn ? "Back To Library" : "Sign in to Library"}
               </Button>
             </MotionItem>
 

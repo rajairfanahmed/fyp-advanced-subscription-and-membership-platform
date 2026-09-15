@@ -1,17 +1,20 @@
 import { clerkMiddleware, createRouteMatcher } from "@clerk/nextjs/server";
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
+
+import { clientIp, rateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 
 /**
  * Advanced Subscription & Membership Platform Clerk Middleware — Next.js 15 + Clerk v7
  *
- * Route protection:
- * - Public routes: accessible without auth
- * - Subscriber routes: require signed-in user
- * - Creator routes: require signed-in user with creator role or admin email
- * - Admin routes: require signed-in user with admin email
+ * Guest perimeter:
+ * - Public pages stay public.
+ * - Public APIs are an explicit allowlist (never `/api/auth/(.*)`).
+ * - Any other API hit without a session returns 401 JSON immediately.
+ * - Known session pages redirect guests to `/login?redirect_url=…`.
+ * - Unknown page URLs are not treated as protected — Next.js renders
+ *   `not-found.tsx` instead of bouncing guests into the login form.
  */
 
-// ── Route matchers ──
 const isPublicRoute = createRouteMatcher([
   "/",
   "/pricing",
@@ -28,42 +31,61 @@ const isPublicRoute = createRouteMatcher([
   "/verify-email",
   "/sso-callback",
   "/maintenance",
-  "/api/auth/(.*)",
+  "/api/auth/me",
+  "/api/auth/throttle",
   "/api/system/(.*)",
-  /** Unauthenticated marketing + integrations (must bypass Clerk redirect). */
   "/api/public/(.*)",
   "/api/contact",
   "/api/webhooks/(.*)",
   "/api/cron/(.*)",
-  // Creator directory + individual creator profiles are public so
-  // signed-out viewers can browse before deciding to sign up. Both
-  // `/creators` (the index) and `/creators/<slug>` need to be listed
-  // — the wildcard alone doesn't match the parent path.
   "/creators",
   "/creators/(.*)",
   "/locked-content",
 ]);
 const isAuthPageRoute = createRouteMatcher(["/login(.*)", "/sign-up(.*)"]);
 const isCreatorRoute = createRouteMatcher(["/creator", "/creator/(.*)"]);
+const isCreatorApiRoute = createRouteMatcher([
+  "/api/creator/(.*)",
+  "/api/creator-profile",
+  "/api/creator-profile/(.*)",
+  "/api/plans",
+  "/api/plans/(.*)",
+  "/api/storage/upload",
+]);
 const isAdminRoute = createRouteMatcher(["/admin", "/admin/(.*)"]);
+const isAdminApiRoute = createRouteMatcher(["/api/admin/(.*)"]);
 const isSubscriberWorkspaceRoute = createRouteMatcher([
   "/library",
   "/library/(.*)",
   "/subscription",
   "/billing",
 ]);
+/** Pages that require a session. Unknown paths stay public so they 404. */
+const isSessionPageRoute = createRouteMatcher([
+  "/library",
+  "/library/(.*)",
+  "/subscription",
+  "/billing",
+  "/account",
+  "/account/(.*)",
+  "/notifications",
+  "/notifications/(.*)",
+  "/creator",
+  "/creator/(.*)",
+  "/admin",
+  "/admin/(.*)",
+]);
 const isApiRoute = createRouteMatcher(["/api/(.*)"]);
-/**
- * Routes the user must still be allowed to hit while maintenance is on,
- * so admins can disable the flag and so visitors can hit /maintenance
- * itself + Clerk's auth flow.
- */
+const isContactApi = createRouteMatcher(["/api/contact"]);
+const isAuthThrottleApi = createRouteMatcher(["/api/auth/throttle"]);
+
 const isMaintenanceAllowlist = createRouteMatcher([
   "/maintenance",
   "/admin",
   "/admin/(.*)",
   "/api/admin/(.*)",
-  "/api/auth/(.*)",
+  "/api/auth/me",
+  "/api/auth/throttle",
   "/api/system/(.*)",
   "/api/webhooks/(.*)",
   "/api/cron/(.*)",
@@ -72,12 +94,6 @@ const isMaintenanceAllowlist = createRouteMatcher([
   "/sso-callback",
 ]);
 
-/**
- * Fetch the live maintenance flag from `/api/system/maintenance`. The
- * response is cached on the Next data layer for 30s so we don't hit
- * MongoDB on every request. Failures fail-open (no maintenance) so a
- * DB hiccup never locks people out of the app.
- */
 async function isMaintenanceEnabled(reqUrl: string): Promise<boolean> {
   try {
     const url = new URL("/api/system/maintenance", reqUrl);
@@ -92,10 +108,6 @@ async function isMaintenanceEnabled(reqUrl: string): Promise<boolean> {
   }
 }
 
-/**
- * Parse ADMIN_EMAILS inside middleware (can't import from lib in edge runtime
- * because edge runtime has access to process.env but not Node modules).
- */
 function getAdminEmailsFromEnv(): string[] {
   return (process.env.ADMIN_EMAILS ?? "")
     .split(",")
@@ -130,6 +142,34 @@ function getRedirectByRole(isAdmin: boolean, role: "subscriber" | "creator"): st
   return "/library";
 }
 
+function jsonError(
+  status: 401 | 403 | 429 | 503,
+  error: string,
+  extra?: Record<string, unknown>,
+  headers?: HeadersInit
+) {
+  return NextResponse.json(
+    { error, code: status === 401 ? "UNAUTHENTICATED" : status === 403 ? "FORBIDDEN" : undefined, ...extra },
+    { status, headers: { "Cache-Control": "no-store", ...headers } }
+  );
+}
+
+function denyGuest(req: NextRequest, pathnameWithSearch: string) {
+  if (isApiRoute(req)) {
+    return jsonError(401, "Unauthorized");
+  }
+  const loginUrl = new URL("/login", req.url);
+  loginUrl.searchParams.set("redirect_url", pathnameWithSearch);
+  return NextResponse.redirect(loginUrl);
+}
+
+function denyRole(req: NextRequest, pageRedirect: string) {
+  if (isApiRoute(req)) {
+    return jsonError(403, "Forbidden");
+  }
+  return NextResponse.redirect(new URL(pageRedirect, req.url));
+}
+
 async function fetchClerkUser(userId: string): Promise<ClerkUserForAuth | null> {
   const secretKey = process.env.CLERK_SECRET_KEY;
   if (!secretKey) return null;
@@ -162,7 +202,37 @@ async function fetchClerkUser(userId: string): Promise<ClerkUserForAuth | null> 
   }
 }
 
+function enforcePublicRateLimits(req: NextRequest): NextResponse | null {
+  const ip = clientIp(req);
+  if (req.method === "POST" && isContactApi(req)) {
+    const result = rateLimit(`contact:${ip}`, 5, 15 * 60 * 1000);
+    if (!result.ok) {
+      return jsonError(
+        429,
+        "Too many messages. Please wait a few minutes and try again.",
+        undefined,
+        rateLimitHeaders(result)
+      );
+    }
+  }
+  if (req.method === "POST" && isAuthThrottleApi(req)) {
+    const result = rateLimit(`throttle:${ip}`, 40, 15 * 60 * 1000);
+    if (!result.ok) {
+      return jsonError(
+        429,
+        "Too many attempts. Please wait a few minutes and try again.",
+        undefined,
+        rateLimitHeaders(result)
+      );
+    }
+  }
+  return null;
+}
+
 export default clerkMiddleware(async (auth, req) => {
+  const limited = enforcePublicRateLimits(req);
+  if (limited) return limited;
+
   const { userId, sessionClaims } = await auth();
   const adminEmails = getAdminEmailsFromEnv();
 
@@ -178,7 +248,7 @@ export default clerkMiddleware(async (auth, req) => {
   let publicMetadata = claimPublicMetadata;
   let unsafeMetadata = claimUnsafeMetadata;
 
-  if (userId && (!email || isCreatorRoute(req) || isAdminRoute(req) || isAuthPageRoute(req))) {
+  if (userId && (!email || isCreatorRoute(req) || isAdminRoute(req) || isAdminApiRoute(req) || isAuthPageRoute(req))) {
     const user = await fetchClerkUser(userId);
     if (user) {
       email = user.email;
@@ -190,63 +260,43 @@ export default clerkMiddleware(async (auth, req) => {
   const isAdmin = email ? adminEmails.includes(email.toLowerCase()) : false;
   const role = getRoleFromMetadata(publicMetadata, unsafeMetadata);
 
-  // Signed-in users should not stay on login/sign-up pages.
   if (userId && isAuthPageRoute(req)) {
     return NextResponse.redirect(new URL(getRedirectByRole(isAdmin, role), req.url));
   }
 
-  // ── Maintenance mode ──
-  // Admins always retain access so they can flip the flag back off.
-  // Non-admin pages get redirected to /maintenance, non-admin API
-  // calls get a 503 with a structured body so the client can surface
-  // a friendly retry banner.
   if (!isAdmin && !isMaintenanceAllowlist(req)) {
     const maintenanceOn = await isMaintenanceEnabled(req.url);
     if (maintenanceOn) {
       if (isApiRoute(req)) {
-        return NextResponse.json(
-          {
-            error: "Advanced Subscription & Membership Platform is temporarily offline for maintenance.",
-            maintenance: true,
-          },
-          { status: 503, headers: { "Cache-Control": "no-store" } }
+        return jsonError(
+          503,
+          "Advanced Subscription & Membership Platform is temporarily offline for maintenance.",
+          { maintenance: true }
         );
       }
-      const url = new URL("/maintenance", req.url);
-      return NextResponse.redirect(url);
+      return NextResponse.redirect(new URL("/maintenance", req.url));
     }
   }
 
-  // Public routes stay public for signed-out and signed-in users.
   if (isPublicRoute(req)) return NextResponse.next();
 
-  // All non-public routes require authentication.
   if (!userId) {
-    const loginUrl = new URL("/login", req.url);
-    loginUrl.searchParams.set("redirect_url", req.nextUrl.pathname + req.nextUrl.search);
-    return NextResponse.redirect(loginUrl);
-  }
-
-  // Admin routes: require admin email
-  if (isAdminRoute(req)) {
-    if (!isAdmin) {
-      // Non-admin users get redirected based on their role
-      const redirectUrl = role === "creator" ? "/creator" : "/library";
-      return NextResponse.redirect(new URL(redirectUrl, req.url));
+    if (isApiRoute(req) || isSessionPageRoute(req)) {
+      return denyGuest(req, req.nextUrl.pathname + req.nextUrl.search);
     }
+    return NextResponse.next();
   }
 
-  // Creator routes: require creator role or admin email
-  if (isCreatorRoute(req)) {
-    if (role !== "creator" && !isAdmin) {
-      return NextResponse.redirect(new URL("/library", req.url));
-    }
+  if ((isAdminRoute(req) || isAdminApiRoute(req)) && !isAdmin) {
+    return denyRole(req, role === "creator" ? "/creator" : "/library");
   }
 
-  // Subscriber membership surfaces are for subscribers (and admins
-  // previewing). Creators must not land on library / subscription / billing UI.
+  if ((isCreatorRoute(req) || isCreatorApiRoute(req)) && role !== "creator" && !isAdmin) {
+    return denyRole(req, "/library");
+  }
+
   if (isSubscriberWorkspaceRoute(req) && role === "creator" && !isAdmin) {
-    return NextResponse.redirect(new URL("/creator", req.url));
+    return denyRole(req, "/creator");
   }
 
   return NextResponse.next();
@@ -254,9 +304,7 @@ export default clerkMiddleware(async (auth, req) => {
 
 export const config = {
   matcher: [
-    // Skip Next.js internals and all static files
     "/((?!_next|[^?]*\\.(?:html?|css|js(?!on)|jpe?g|webp|png|gif|svg|ttf|woff2?|ico|csv|docx?|xlsx?|zip|webmanifest)).*)",
-    // Always run for API routes
     "/(api|trpc)(.*)",
   ],
 };

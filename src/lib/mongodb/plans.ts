@@ -59,10 +59,21 @@ function normalizeFeatures(value: unknown): string[] {
     .slice(0, FEATURE_LIMIT);
 }
 
+const PAID_PRICE_MIN = 1;
+const PAID_PRICE_MAX = 9999;
+
 function clampPrice(value: unknown, accessLevel: PlanAccessLevel): number {
   if (accessLevel === "free") return 0;
   const num = typeof value === "number" ? value : Number(value);
-  if (!Number.isFinite(num) || num < 0) return 0;
+  if (!Number.isFinite(num)) {
+    throw new Error("Enter a valid monthly price.");
+  }
+  if (num < PAID_PRICE_MIN) {
+    throw new Error("Paid plans must be at least $1.00 per month.");
+  }
+  if (num > PAID_PRICE_MAX) {
+    throw new Error("Monthly price cannot exceed $9,999.00.");
+  }
   return Math.round(num * 100) / 100;
 }
 
@@ -329,13 +340,6 @@ export async function updateCreatorPlan(
       }
     }
     plan.isActive = nextActive;
-  }
-
-  if (input.stripePriceId !== undefined) {
-    plan.stripePriceId = cleanText(input.stripePriceId).slice(0, 200);
-  }
-  if (input.stripeProductId !== undefined) {
-    plan.stripeProductId = cleanText(input.stripeProductId).slice(0, 200);
   }
 
   await plan.save();

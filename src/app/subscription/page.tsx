@@ -13,43 +13,28 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
+import { daysRemainingLabel, planTierLabel } from "@/lib/membership/labels";
+import { PaymentIssueBanner } from "@/components/billing/PaymentIssueBanner";
+import { CancelMembershipDialog } from "@/components/billing/CancelMembershipDialog";
+import { TIER_LIMITS } from "@/config/tier-limits";
+import { DownloadQuotaMeter } from "@/components/membership/DownloadQuotaMeter";
+import {
+  fetchWithTimeout,
+  readJsonSafe,
+  RequestTimeoutError,
+} from "@/lib/http/fetch-timeout";
+import { useInFlightLock } from "@/lib/ui/useInFlightLock";
 import type {
   SubscriptionResponse,
   SubscriptionStatus,
 } from "@/types/subscription";
 
-const TIER_INFO = [
-  {
-    name: "Free",
-    price: "Free",
-    accessLevel: "free" as const,
-    features: [
-      "Watch free articles and video previews.",
-      "Up to 5 free-tier downloads per creator each month.",
-      "Standard creator updates.",
-    ],
-  },
-  {
-    name: "Basic",
-    price: "Set by creator",
-    accessLevel: "basic" as const,
-    features: [
-      "Watch free + basic videos and articles.",
-      "Up to 30 downloads per creator each month.",
-      "PDF, ZIP, and RAR downloads.",
-    ],
-  },
-  {
-    name: "Premium",
-    price: "Set by creator",
-    accessLevel: "premium" as const,
-    features: [
-      "Watch every tier of content from the creator.",
-      "Unlimited file downloads.",
-      "Every file download from that creator.",
-    ],
-  },
-];
+const TIER_INFO = (["free", "basic", "premium"] as const).map((accessLevel) => ({
+  name: TIER_LIMITS[accessLevel].label,
+  price: accessLevel === "free" ? "Free" : "Set by creator",
+  accessLevel,
+  features: TIER_LIMITS[accessLevel].features,
+}));
 
 const STATUS_COPY: Record<SubscriptionStatus, { label: string; tone: "emerald" | "sky" | "default" | "locked" }> = {
   active: { label: "Active", tone: "emerald" },
@@ -85,6 +70,8 @@ export default function SubscriptionPage() {
   const [loadNonce, setLoadNonce] = useState(0);
   const [checkoutPending, setCheckoutPending] = useState(false);
   const [checkoutNotice, setCheckoutNotice] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<SubscriptionResponse | null>(null);
+  const mutationLock = useInFlightLock();
 
   useEffect(() => {
     let cancelled = false;
@@ -130,20 +117,26 @@ export default function SubscriptionPage() {
           if (res.ok) {
             const data = (await res.json()) as {
               ready?: boolean;
+              accessLevel?: string | null;
               subscriptions?: SubscriptionResponse[];
             };
-            const ready =
-              data.ready === true ||
-              (Array.isArray(data.subscriptions) &&
-                data.subscriptions.some(
-                  (s) =>
-                    s.accessLevel !== "free" &&
-                    (s.status === "active" || s.status === "trialing")
-                ));
+            const paid = Array.isArray(data.subscriptions)
+              ? data.subscriptions.find(
+                  (item) =>
+                    item.accessLevel !== "free" &&
+                    (item.status === "active" || item.status === "trialing")
+                )
+              : undefined;
+            const ready = data.ready === true || Boolean(paid);
             if (ready) {
               if (!cancelled) {
                 setCheckoutPending(false);
-                setCheckoutNotice("Payment confirmed. Your paid membership is active.");
+                const level = data.accessLevel || paid?.accessLevel;
+                setCheckoutNotice(
+                  level
+                    ? `Payment confirmed. Your ${planTierLabel(level)} membership is active.`
+                    : "Payment confirmed. Your paid membership is active."
+                );
                 setLoadNonce((n) => n + 1);
                 window.history.replaceState({}, "", "/subscription");
               }
@@ -178,55 +171,67 @@ export default function SubscriptionPage() {
   const primarySubscription = activeSubscriptions[0] ?? null;
 
   async function handleCancel(subscription: SubscriptionResponse) {
-    if (pendingId) return;
-    if (!confirm(`Cancel your ${subscription.planName} subscription with ${subscription.creatorName}?`)) {
-      return;
-    }
+    if (!mutationLock.begin()) return;
     setPendingId(subscription.id);
     setErrorMessage("");
     try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+      const res = await fetchWithTimeout(`/api/subscriptions/${subscription.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cancel: true }),
+        timeoutMs: 15_000,
       });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = await readJsonSafe<{ subscription?: SubscriptionResponse; error?: string }>(res);
+      if (!res.ok || !data.subscription) {
         throw new Error(data.error || "Failed to cancel.");
       }
-      const data = (await res.json()) as { subscription: SubscriptionResponse };
       setSubscriptions((prev) =>
-        prev.map((item) => (item.id === data.subscription.id ? data.subscription : item))
+        prev.map((item) => (item.id === data.subscription!.id ? data.subscription! : item))
       );
+      setCancelTarget(null);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to cancel.");
+      setErrorMessage(
+        error instanceof RequestTimeoutError
+          ? "The membership service didn’t respond. Nothing was changed. Try again."
+          : error instanceof Error
+            ? error.message
+            : "Failed to cancel."
+      );
     } finally {
       setPendingId(null);
+      mutationLock.end();
     }
   }
 
   async function handleReactivate(subscription: SubscriptionResponse) {
-    if (pendingId) return;
+    if (!mutationLock.begin()) return;
     setPendingId(subscription.id);
     setErrorMessage("");
     try {
-      const res = await fetch(`/api/subscriptions/${subscription.id}`, {
+      const res = await fetchWithTimeout(`/api/subscriptions/${subscription.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reactivate: true }),
+        timeoutMs: 15_000,
       });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = await readJsonSafe<{ subscription?: SubscriptionResponse; error?: string }>(res);
+      if (!res.ok || !data.subscription) {
         throw new Error(data.error || "Failed to reactivate.");
       }
-      const data = (await res.json()) as { subscription: SubscriptionResponse };
       setSubscriptions((prev) =>
-        prev.map((item) => (item.id === data.subscription.id ? data.subscription : item))
+        prev.map((item) => (item.id === data.subscription!.id ? data.subscription! : item))
       );
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Failed to reactivate.");
+      setErrorMessage(
+        error instanceof RequestTimeoutError
+          ? "The membership service didn’t respond. Nothing was changed. Try again."
+          : error instanceof Error
+            ? error.message
+            : "Failed to reactivate."
+      );
     } finally {
       setPendingId(null);
+      mutationLock.end();
     }
   }
 
@@ -242,13 +247,13 @@ export default function SubscriptionPage() {
               <Badge variant="emerald">Subscription Settings</Badge>
             </MotionItem>
             <MotionItem>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
                 Manage Your <span className="text-gradient-primary">Memberships</span>
               </h1>
             </MotionItem>
             <MotionItem>
               <p className="text-lg md:text-xl text-[var(--color-muted)] font-medium max-w-2xl leading-relaxed">
-                Review every creator membership tied to your account, see what tier you&apos;re on, and stop or restart any free subscription.
+                Review every creator membership tied to your account, see what tier you&apos;re on, and cancel or keep any membership.
               </p>
             </MotionItem>
           </MotionReveal>
@@ -256,9 +261,9 @@ export default function SubscriptionPage() {
       </section>
 
       <Container className="max-w-5xl">
-        <div className="grid lg:grid-cols-3 gap-10">
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
 
-          <div className="lg:col-span-2 space-y-10">
+          <div className="lg:col-span-2 space-y-10 min-w-0">
 
             {checkoutNotice && (
               <MotionReveal>
@@ -297,9 +302,11 @@ export default function SubscriptionPage() {
               </MotionReveal>
             )}
 
+            <PaymentIssueBanner subscriptions={subscriptions} />
+
             {/* ── 2. Current / Active Memberships ── */}
             <MotionReveal>
-              <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-8 md:p-10 relative overflow-hidden">
+              <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-5 sm:p-8 md:p-10 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
 
                 <div className="flex flex-wrap items-start justify-between gap-4 mb-6 relative z-10">
@@ -324,7 +331,9 @@ export default function SubscriptionPage() {
                       </div>
                       {primarySubscription.currentPeriodEnd && (
                         <div className="text-sm text-slate-500 font-medium mt-1">
-                          Renews {formatRenewalDate(primarySubscription.currentPeriodEnd)}
+                          {daysRemainingLabel(primarySubscription.currentPeriodEnd, {
+                            ending: primarySubscription.cancelAtPeriodEnd,
+                          }) || `Renews ${formatRenewalDate(primarySubscription.currentPeriodEnd)}`}
                         </div>
                       )}
                     </div>
@@ -387,44 +396,66 @@ export default function SubscriptionPage() {
                                 <Badge variant={status.tone}>{status.label}</Badge>
                               </div>
                               <p className="text-sm font-bold text-slate-600 mt-1">
-                                {subscription.planName} · {formatPrice(subscription.priceMonthly)}/mo
+                                {planTierLabel(subscription.accessLevel)} · {subscription.planName} · {formatPrice(subscription.priceMonthly)}/mo
                               </p>
                               <p className="text-xs font-medium text-slate-500 mt-1">
-                                {subscription.downloadQuota.monthlyLimit === null
-                                  ? "Unlimited downloads this month."
-                                  : `${subscription.downloadQuota.remaining ?? 0} of ${subscription.downloadQuota.monthlyLimit} downloads left this month.`}
+                                {subscription.accessLevel !== "free" &&
+                                daysRemainingLabel(subscription.currentPeriodEnd, {
+                                  ending: subscription.cancelAtPeriodEnd,
+                                })
+                                  ? daysRemainingLabel(subscription.currentPeriodEnd, {
+                                      ending: subscription.cancelAtPeriodEnd,
+                                    })
+                                  : null}
                               </p>
+                              <DownloadQuotaMeter quota={subscription.downloadQuota} />
                             </div>
                           </div>
-                          <div className="flex items-center gap-2 shrink-0">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2 shrink-0 w-full sm:w-auto">
+                            {subscription.accessLevel !== "free" &&
+                              subscription.accessLevel !== "premium" &&
+                              subscription.creatorSlug && (
+                              <Button
+                                variant="primary"
+                                className="text-xs w-full sm:w-auto"
+                                href={`/creators/${subscription.creatorSlug}`}
+                              >
+                                Upgrade to Premium
+                              </Button>
+                            )}
                             {subscription.accessLevel === "free" && subscription.creatorSlug && (
                               <Button
                                 variant="primary"
-                                className="text-xs"
+                                className="text-xs w-full sm:w-auto"
                                 href={`/creators/${subscription.creatorSlug}`}
                               >
                                 Upgrade
                               </Button>
                             )}
                             {subscription.cancelAtPeriodEnd ? (
-                              <Badge variant="locked">Ends this period</Badge>
-                            ) : subscription.accessLevel === "free" ? (
-                              <Button
-                                variant="outline"
-                                className="text-rose-600 border-rose-200 hover:bg-rose-50 text-xs"
-                                disabled={isProcessing}
-                                onClick={() => handleCancel(subscription)}
-                              >
-                                {isProcessing ? "Cancelling…" : "Cancel"}
-                              </Button>
+                              <>
+                                <Badge variant="locked" className="self-center">
+                                  Ends {formatRenewalDate(subscription.currentPeriodEnd) || "this period"}
+                                </Badge>
+                                <Button
+                                  variant="outline"
+                                  className="text-emerald-700 border-emerald-200 hover:bg-emerald-50 text-xs w-full sm:w-auto"
+                                  disabled={isProcessing}
+                                  onClick={() => handleReactivate(subscription)}
+                                >
+                                  {isProcessing ? "Resuming…" : "Keep membership"}
+                                </Button>
+                              </>
                             ) : (
                               <Button
                                 variant="outline"
-                                className="text-rose-600 border-rose-200 hover:bg-rose-50 text-xs"
+                                className="text-rose-600 border-rose-200 hover:bg-rose-50 text-xs w-full sm:w-auto"
                                 disabled={isProcessing}
-                                onClick={() => handleCancel(subscription)}
+                                onClick={() => setCancelTarget(subscription)}
                               >
-                                {isProcessing ? "Cancelling…" : "Cancel at period end"}
+                                {subscription.accessLevel === "free"
+                                  ? "Cancel"
+                                  : "Cancel at period end"}
                               </Button>
                             )}
                           </div>
@@ -504,7 +535,7 @@ export default function SubscriptionPage() {
                         return (
                           <div
                             key={subscription.id}
-                            className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 flex items-center justify-between gap-4"
+                            className="rounded-2xl border border-slate-100 bg-slate-50/60 p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4"
                           >
                             <div className="min-w-0">
                               <p className="font-bold text-slate-700 truncate">
@@ -533,7 +564,7 @@ export default function SubscriptionPage() {
             )}
           </div>
 
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-6 min-w-0">
             {/* ── FAQ ── */}
             <MotionReveal className="sticky top-24 space-y-6">
               <div className="bg-[var(--color-ink)] text-white rounded-[2rem] p-8 shadow-xl shadow-slate-900/10 relative overflow-hidden">
@@ -560,7 +591,7 @@ export default function SubscriptionPage() {
                     <h4 className="font-bold text-slate-200 text-sm mb-2">What happens if I cancel?</h4>
                     <p className="text-sm text-slate-400 leading-relaxed">
                       Cancelled free memberships can be reactivated any time. Cancelled paid memberships keep
-                      access until the end of the billing period.
+                      access until the end of the billing period — tap Keep membership before that date to stay billed.
                     </p>
                   </div>
                 </div>
@@ -577,6 +608,14 @@ export default function SubscriptionPage() {
 
         </div>
       </Container>
+      <CancelMembershipDialog
+        subscription={cancelTarget}
+        pending={Boolean(cancelTarget && pendingId === cancelTarget.id)}
+        onKeep={() => setCancelTarget(null)}
+        onConfirm={() => {
+          if (cancelTarget) void handleCancel(cancelTarget);
+        }}
+      />
     </div>
   );
 }

@@ -6,7 +6,6 @@ import {
   ContentModel,
   CreatorProfileModel,
   NotificationModel,
-  PaymentModel,
   PlanModel,
   SubscriberProfileModel,
   SubscriptionModel,
@@ -109,7 +108,16 @@ async function deleteClerkUserSafe(clerkUserId: string, warnings: string[]) {
  * removes subscription docs, removes the user/subscriber profile,
  * removes the avatar from R2, then deletes the Clerk user.
  */
-export async function deleteSubscriberAccount(clerkUserId: string): Promise<DeletionReport> {
+export type DeleteAccountOptions = {
+  /** Keep payment rows for the financial ledger. Admin deletes must set this. */
+  preservePaymentLedger?: boolean;
+};
+
+export async function deleteSubscriberAccount(
+  clerkUserId: string,
+  _options: DeleteAccountOptions = {}
+): Promise<DeletionReport> {
+  void _options;
   await connectToMongoDB();
 
   const report: DeletionReport = {
@@ -135,10 +143,6 @@ export async function deleteSubscriberAccount(clerkUserId: string): Promise<Dele
 
   await NotificationModel.deleteMany({ recipientClerkUserId: clerkUserId }).catch((err) => {
     report.warnings.push(`Notification cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
-  });
-
-  await PaymentModel.deleteMany({ subscriberClerkUserId: clerkUserId }).catch((err) => {
-    report.warnings.push(`Payment cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
   });
 
   await ContactModel.deleteMany({ clerkUserId }).catch(() => {
@@ -170,7 +174,11 @@ export async function deleteSubscriberAccount(clerkUserId: string): Promise<Dele
  *   - Delete the UserProfile.
  *   - Delete the Clerk user.
  */
-export async function deleteCreatorAccount(clerkUserId: string): Promise<DeletionReport> {
+export async function deleteCreatorAccount(
+  clerkUserId: string,
+  _options: DeleteAccountOptions = {}
+): Promise<DeletionReport> {
+  void _options;
   await connectToMongoDB();
 
   const report: DeletionReport = {
@@ -220,11 +228,6 @@ export async function deleteCreatorAccount(clerkUserId: string): Promise<Deletio
     $or: [{ creatorClerkUserId: clerkUserId }, { recipientClerkUserId: clerkUserId }],
   }).catch((err) => {
     report.warnings.push(`Notification cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
-  });
-  await PaymentModel.deleteMany({
-    $or: [{ creatorClerkUserId: clerkUserId }, { subscriberClerkUserId: clerkUserId }],
-  }).catch((err) => {
-    report.warnings.push(`Payment cleanup failed: ${err instanceof Error ? err.message : String(err)}`);
   });
   await ContactModel.deleteMany({ clerkUserId }).catch(() => {
     /* not critical */

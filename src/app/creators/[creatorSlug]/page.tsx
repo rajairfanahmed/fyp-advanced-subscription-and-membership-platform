@@ -16,6 +16,14 @@ import type {
 } from "@/lib/mongodb/public-data";
 import type { PlanAccessLevel } from "@/types/plan";
 import type { SubscriptionStatus } from "@/types/subscription";
+import { planTierLabel, daysRemainingLabel } from "@/lib/membership/labels";
+import { loginHref } from "@/lib/auth/post-login-redirect";
+import {
+  fetchWithTimeout,
+  readJsonSafe,
+  RequestTimeoutError,
+} from "@/lib/http/fetch-timeout";
+import { useInFlightLock } from "@/lib/ui/useInFlightLock";
 import { CheckCircle2, Eye, FileText, Lock, Sparkles, Users } from "lucide-react";
 
 type ViewerSubscription = {
@@ -70,7 +78,11 @@ export default function CreatorProfilePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [pendingPlanId, setPendingPlanId] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
+  const [actionNotice, setActionNotice] = useState("");
   const [reloadNonce, setReloadNonce] = useState(0);
+  const [loadError, setLoadError] = useState("");
+  const subscribeLock = useInFlightLock();
+  const checkoutLock = useInFlightLock();
 
   useEffect(() => {
     let cancelled = false;
@@ -78,26 +90,44 @@ export default function CreatorProfilePage() {
     if (!creatorSlug) return;
 
     async function loadCreator() {
+      setLoadError("");
       try {
-        const res = await fetch(`/api/public/creators/${encodeURIComponent(creatorSlug)}`, { cache: "no-store" });
+        const res = await fetchWithTimeout(
+          `/api/public/creators/${encodeURIComponent(creatorSlug)}`,
+          { cache: "no-store", timeoutMs: 15_000 }
+        );
         if (!res.ok) {
-          if (!cancelled) setCreator(null);
+          if (!cancelled) {
+            setCreator(null);
+            setLoadError(
+              res.status === 404
+                ? ""
+                : "This creator profile couldn’t be loaded. Check your connection and try again."
+            );
+          }
           return;
         }
-        const data = (await res.json()) as {
+        const data = await readJsonSafe<{
           creator: PublicCreator | null;
           content: PublicContent[];
           plans?: PublicCreatorPlan[];
           viewer?: ViewerSubscription | null;
-        };
+        }>(res);
         if (!cancelled) {
-          setCreator(data.creator);
-          setContent(data.content);
+          setCreator(data.creator ?? null);
+          setContent(data.content ?? []);
           setPlans(data.plans ?? []);
           setViewer(data.viewer ?? null);
         }
-      } catch {
-        if (!cancelled) setCreator(null);
+      } catch (error) {
+        if (!cancelled) {
+          setCreator(null);
+          setLoadError(
+            error instanceof RequestTimeoutError
+              ? error.message
+              : "This creator profile couldn’t be loaded. Check your connection and try again."
+          );
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -144,63 +174,89 @@ export default function CreatorProfilePage() {
 
   async function handleSubscribeFree() {
     if (!creator) return;
+    if (!isLoaded) return;
     if (!isSignedIn) {
-      window.location.href = `/login?redirect_url=${encodeURIComponent(`/creators/${creator.slug}`)}`;
+      window.location.assign(loginHref(`/creators/${creator.slug}`));
       return;
     }
     if (viewerRole === "creator" || isOwnProfile) return;
+    if (!subscribeLock.begin()) return;
     setPendingPlanId("free");
     setActionError("");
     try {
-      const res = await fetch("/api/subscriptions", {
+      const res = await fetchWithTimeout("/api/subscriptions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ creatorClerkUserId: creator.clerkUserId }),
+        timeoutMs: 15_000,
       });
-      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      const data = await readJsonSafe<{ error?: string }>(res);
       if (!res.ok) throw new Error(data.error || "Failed to subscribe.");
       setReloadNonce((n) => n + 1);
     } catch (err) {
-      setActionError(err instanceof Error ? err.message : "Failed to subscribe.");
+      setActionError(
+        err instanceof RequestTimeoutError
+          ? "The membership service didn’t respond. You were not subscribed. Try again."
+          : err instanceof Error
+            ? err.message
+            : "Failed to subscribe."
+      );
     } finally {
       setPendingPlanId(null);
+      subscribeLock.end();
     }
   }
 
   async function handleCheckout(plan: PublicCreatorPlan) {
     if (!creator) return;
+    if (!isLoaded) return;
     if (!isSignedIn) {
-      window.location.href = `/login?redirect_url=${encodeURIComponent(`/creators/${creator.slug}`)}`;
+      window.location.assign(loginHref(`/creators/${creator.slug}`));
       return;
     }
     if (viewerRole === "creator" || isOwnProfile) return;
+    if (!checkoutLock.begin()) return;
     setPendingPlanId(plan.id);
     setActionError("");
+    setActionNotice("");
+    let navigating = false;
     try {
-      const res = await fetch("/api/checkout", {
+      const res = await fetchWithTimeout("/api/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ planId: plan.id }),
+        timeoutMs: 45_000,
       });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = await readJsonSafe<{
         url?: string;
         applied?: boolean;
         error?: string;
-      };
+      }>(res);
       if (data.applied) {
+        setActionNotice(
+          `You're now on ${planTierLabel(plan.accessLevel)} with this creator. The change is active immediately.`
+        );
         setReloadNonce((n) => n + 1);
-        setPendingPlanId(null);
         return;
       }
       if (!res.ok || !data.url) {
         throw new Error(data.error || "Failed to start checkout.");
       }
-      window.location.href = data.url;
+      navigating = true;
+      window.location.assign(data.url);
     } catch (err) {
       setActionError(
-        err instanceof Error ? err.message : "Failed to start checkout."
+        err instanceof RequestTimeoutError
+          ? "Checkout is taking too long. Nothing was charged. Wait a moment, then click Subscribe once more — Stripe’s payment page should open."
+          : err instanceof Error
+            ? err.message
+            : "Failed to start checkout."
       );
-      setPendingPlanId(null);
+    } finally {
+      if (!navigating) {
+        setPendingPlanId(null);
+        checkoutLock.end();
+      }
     }
   }
 
@@ -208,8 +264,14 @@ export default function CreatorProfilePage() {
     return (
       <div className="flex flex-col min-h-screen pt-32 pb-20 lg:pt-40 bg-[var(--color-paper)]">
         <Container>
-          <div className="bg-white rounded-2xl border border-slate-200 p-8 text-sm font-bold text-slate-600">
-            Loading creator profile...
+          <div className="bg-white rounded-[2rem] border border-slate-200 overflow-hidden shadow-sm animate-pulse">
+            <div className="h-40 bg-slate-100" />
+            <div className="p-8 md:p-12 space-y-4">
+              <div className="w-24 h-24 rounded-full bg-slate-100 -mt-20 ring-4 ring-white" />
+              <div className="h-8 w-64 bg-slate-100 rounded-xl" />
+              <div className="h-4 w-full max-w-xl bg-slate-50 rounded-lg" />
+              <div className="h-4 w-2/3 bg-slate-50 rounded-lg" />
+            </div>
           </div>
         </Container>
       </div>
@@ -220,14 +282,32 @@ export default function CreatorProfilePage() {
     return (
       <div className="flex flex-col min-h-screen pt-32 pb-20 lg:pt-40 bg-[var(--color-paper)]">
         <Container>
-          <div className="bg-white rounded-2xl border border-slate-200 p-8">
-            <h1 className="text-3xl font-black font-display text-slate-950 mb-3">Creator not found</h1>
-            <p className="text-sm font-bold text-slate-600 mb-6">
-              This creator profile is unavailable or has not been published yet.
+          <div className="bg-white rounded-[2rem] border border-slate-200 p-10 md:p-14 text-center max-w-xl mx-auto">
+            <h1 className="text-3xl font-black font-display text-slate-950 mb-3">
+              {loadError ? "Couldn’t load this creator" : "Creator not found"}
+            </h1>
+            <p className="text-sm font-medium text-slate-600 mb-8 leading-relaxed">
+              {loadError ||
+                "This creator profile is unavailable or has not been published yet."}
             </p>
-            <Link href="/creators" className="text-sm font-black text-emerald-700 hover:text-emerald-800">
-              Browse published creators
-            </Link>
+            <div className="flex flex-wrap justify-center gap-3">
+              {loadError ? (
+                <Button
+                  type="button"
+                  variant="primary"
+                  onClick={() => {
+                    setIsLoading(true);
+                    setLoadError("");
+                    setReloadNonce((n) => n + 1);
+                  }}
+                >
+                  Try again
+                </Button>
+              ) : null}
+              <Button variant="secondary" href="/creators">
+                Browse creators
+              </Button>
+            </div>
           </div>
         </Container>
       </div>
@@ -253,7 +333,7 @@ export default function CreatorProfilePage() {
                 )}
               </div>
 
-              <div className="px-6 md:px-12 pt-8 pb-10 md:pb-12">
+              <div className="px-4 sm:px-6 md:px-12 pt-8 pb-10 md:pb-12">
                 <div className="flex flex-col md:flex-row md:items-start md:gap-8 mb-8">
                   <div className="w-24 h-24 md:w-28 md:h-28 rounded-full bg-slate-100 ring-4 ring-white shadow-md overflow-hidden flex items-center justify-center text-emerald-700 text-2xl md:text-3xl font-black font-display shrink-0 mb-5 md:mb-0">
                     {creator.avatarUrl ? (
@@ -275,21 +355,21 @@ export default function CreatorProfilePage() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-4 max-w-lg mx-auto md:mx-0">
-                  <div className="bg-[var(--color-paper)] rounded-2xl p-4 text-center border border-slate-100">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 max-w-lg mx-auto md:mx-0">
+                  <div className="bg-[var(--color-paper)] rounded-2xl p-3 sm:p-4 text-center border border-slate-100 min-w-0">
                     <Users className="w-4 h-4 text-emerald-500 mx-auto mb-1.5" />
                     <p className="text-xl font-black text-[var(--color-ink)]">{creator.subscriberCount.toLocaleString()}</p>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1">Subscribers</p>
+                    <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1 leading-tight">Subscribers</p>
                   </div>
-                  <div className="bg-[var(--color-paper)] rounded-2xl p-4 text-center border border-slate-100">
+                  <div className="bg-[var(--color-paper)] rounded-2xl p-3 sm:p-4 text-center border border-slate-100 min-w-0">
                     <FileText className="w-4 h-4 text-sky-500 mx-auto mb-1.5" />
                     <p className="text-xl font-black text-[var(--color-ink)]">{creator.contentCount}</p>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1">Content</p>
+                    <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1 leading-tight">Content</p>
                   </div>
-                  <div className="bg-[var(--color-paper)] rounded-2xl p-4 text-center border border-slate-100">
+                  <div className="bg-[var(--color-paper)] rounded-2xl p-3 sm:p-4 text-center border border-slate-100 min-w-0">
                     <Eye className="w-4 h-4 text-violet-500 mx-auto mb-1.5" />
                     <p className="text-xl font-black text-[var(--color-ink)]">{creator.totalViews.toLocaleString()}</p>
-                    <p className="text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1">Views</p>
+                    <p className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-wider mt-1 leading-tight">Views</p>
                   </div>
                 </div>
               </div>
@@ -312,13 +392,25 @@ export default function CreatorProfilePage() {
                 {viewer && viewer.status === "active" && (
                   <Badge variant="emerald">
                     <CheckCircle2 className="w-3.5 h-3.5 mr-1 inline" />
-                    Subscribed · {viewer.accessLevel}
+                    {planTierLabel(viewer.accessLevel)}
+                    {daysRemainingLabel(
+                      viewer.currentPeriodEnd,
+                      { ending: viewer.cancelAtPeriodEnd }
+                    )
+                      ? ` · ${daysRemainingLabel(viewer.currentPeriodEnd, { ending: viewer.cancelAtPeriodEnd })}`
+                      : ""}
                   </Badge>
                 )}
                 {viewer && viewer.status === "past_due" && (
                   <Badge variant="locked">Payment past due</Badge>
                 )}
               </div>
+
+              {actionError && (
+                <p className="mb-4 text-sm font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
+                  {actionError}
+                </p>
+              )}
 
               {!isLoaded ? (
                 <p className="text-sm font-medium text-slate-500">
@@ -345,9 +437,19 @@ export default function CreatorProfilePage() {
                       viewer!.status !== "canceled" &&
                       viewer!.status !== "expired" &&
                       viewerTier > planTier;
+                    const isUpgrade =
+                      Boolean(viewer) &&
+                      viewer!.status !== "canceled" &&
+                      viewer!.status !== "expired" &&
+                      viewer!.accessLevel !== "free" &&
+                      planTier > viewerTier;
                     const isFree = plan.accessLevel === "free";
                     const stripeBlocked = !isFree && !plan.stripeReady;
-                    const isPending = pendingPlanId === plan.id || (isFree && pendingPlanId === "free");
+                    const isThisPending =
+                      pendingPlanId === plan.id ||
+                      (isFree && pendingPlanId === "free");
+                    const otherActionBusy =
+                      (subscribeLock.busy || checkoutLock.busy) && !isThisPending;
 
                     return (
                       <div
@@ -367,7 +469,7 @@ export default function CreatorProfilePage() {
                                   : "default"
                             }
                           >
-                            {plan.accessLevel}
+                            {planTierLabel(plan.accessLevel)}
                           </Badge>
                         </div>
                         <p className="text-2xl font-black font-display text-[var(--color-ink)]">
@@ -429,9 +531,9 @@ export default function CreatorProfilePage() {
                                 variant="secondary"
                                 className="w-full text-xs"
                                 onClick={handleSubscribeFree}
-                                disabled={isPending}
+                                disabled={isThisPending || otherActionBusy || !isLoaded}
                               >
-                                {isPending ? "Following…" : "Follow free"}
+                                {isThisPending ? "Following…" : "Follow free"}
                               </Button>
                               <p className="text-[10px] font-medium text-slate-500 mt-2 text-center">
                                 Unlocks Free content only
@@ -449,17 +551,28 @@ export default function CreatorProfilePage() {
                               Checkout not ready
                             </Button>
                           ) : (
+                            <>
                             <Button
                               type="button"
                               variant="primary"
                               className="w-full text-xs"
                               onClick={() => handleCheckout(plan)}
-                              disabled={isPending}
+                              disabled={isThisPending || otherActionBusy || !isLoaded}
                             >
-                              {isPending
-                                ? "Redirecting…"
-                                : `Subscribe · ${formatPrice(plan.priceMonthly, plan.currency)}/mo`}
+                              {isThisPending
+                                ? isUpgrade
+                                  ? "Upgrading…"
+                                  : "Redirecting…"
+                                : isUpgrade
+                                  ? `Upgrade to ${plan.name}`
+                                  : `Subscribe · ${formatPrice(plan.priceMonthly, plan.currency)}/mo`}
                             </Button>
+                            {isUpgrade && (
+                              <p className="text-[10px] font-medium text-slate-500 mt-2 text-center">
+                                Takes effect now. Stripe prorates the difference.
+                              </p>
+                            )}
+                            </>
                           )}
                         </div>
                       </div>
@@ -490,9 +603,9 @@ export default function CreatorProfilePage() {
                 </p>
               )}
 
-              {actionError && (
-                <p className="mt-4 text-sm font-bold text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-4 py-3">
-                  {actionError}
+              {actionNotice && (
+                <p className="mt-4 text-sm font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+                  {actionNotice}
                 </p>
               )}
 

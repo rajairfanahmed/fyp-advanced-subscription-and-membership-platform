@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Play } from "lucide-react";
 
 interface SubscriberContentCardProps {
   title: string;
@@ -88,6 +89,14 @@ export function SubscriberContentCard({
         )
       )}
 
+      {type === "Video" && (
+        <div className="absolute inset-0 z-[5] flex items-center justify-center pointer-events-none">
+          <div className="w-14 h-14 rounded-full bg-white/30 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 group-hover:bg-white/50 transition-transform">
+            <Play className="w-7 h-7 text-white fill-white drop-shadow ml-0.5" />
+          </div>
+        </div>
+      )}
+
       {isLocked && (
         <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-md flex flex-col items-center justify-center z-10 transition-opacity duration-300">
           <div className="bg-white px-4 py-2 rounded-full flex items-center gap-2 shadow-lg mb-3">
@@ -118,7 +127,13 @@ export function SubscriberContentCard({
           <Link
             href={thumbnailHref}
             className="absolute inset-0 block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
-            aria-label={isLocked ? `Upgrade to unlock ${title}` : `Open ${title}`}
+            aria-label={
+              isLocked
+                ? `Upgrade to unlock ${title}`
+                : type === "Video"
+                  ? `Play ${title}`
+                  : `Open ${title}`
+            }
           >
             {thumbnailInner}
           </Link>

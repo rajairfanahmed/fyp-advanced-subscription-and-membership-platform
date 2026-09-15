@@ -32,7 +32,7 @@ export function Button({
   ...rest
 }: ButtonProps) {
   const baseStyles =
-    "inline-flex justify-center items-center gap-2 font-semibold transition-all duration-300 ease-in-out rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-emerald)] focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
+    "inline-flex justify-center items-center gap-2 font-semibold transition-all duration-300 ease-in-out rounded-2xl min-w-0 max-w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-emerald)] focus-visible:ring-offset-2 disabled:opacity-50 disabled:pointer-events-none";
 
   const variants = {
     primary:

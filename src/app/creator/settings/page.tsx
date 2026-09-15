@@ -11,7 +11,7 @@ import type { CreatorProfileResponse, CreatorProfileStatus, CreatorWorkspaceAler
 
 const NOTIFICATION_PREFS = [
   "New subscriber alerts",
-  "Billing summaries",
+  "Renewals and scheduled cancellations",
   "Failed payment alerts",
   "Content engagement reports",
   "Weekly revenue summary",
@@ -271,7 +271,7 @@ export default function SettingsPage() {
 
   return (
     <CreatorShell>
-      <div className="space-y-12 pb-10">
+      <div className="space-y-12 pb-10 min-w-0">
         <DashboardHeader
           eyebrow="Configuration"
           title="Creator Settings"
@@ -284,12 +284,12 @@ export default function SettingsPage() {
         />
 
         {isLoading ? (
-          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 text-sm font-bold text-slate-600">
+          <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 text-sm font-bold text-slate-600">
             Loading creator profile...
           </div>
         ) : (
-          <div className="grid lg:grid-cols-3 gap-10">
-            <div className="lg:col-span-2 space-y-10">
+          <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
+            <div className="lg:col-span-2 space-y-10 min-w-0">
               <MotionReveal className="space-y-10">
                 {profileStatus === "draft" && (
                   <div
@@ -327,7 +327,7 @@ export default function SettingsPage() {
                   </div>
                 )}
                 <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-10 border-b border-slate-50 flex items-center gap-6">
+                  <div className="p-5 sm:p-8 lg:p-10 border-b border-slate-50 flex items-center gap-4 sm:gap-6">
                     <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shadow-sm">
                       <User className="w-6 h-6 text-slate-400" />
                     </div>
@@ -337,14 +337,14 @@ export default function SettingsPage() {
                     </div>
                   </div>
 
-                  <form className="p-10 space-y-8" onSubmit={handleFormSubmit}>
+                  <form className="p-5 sm:p-8 lg:p-10 space-y-8" onSubmit={handleFormSubmit}>
                     {(error || message) && (
                       <div className={`p-4 rounded-xl text-sm font-bold border ${error ? "bg-red-50 border-red-200 text-red-700" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
                         {error || message}
                       </div>
                     )}
 
-                    <div className="flex items-center gap-8">
+                    <div className="flex flex-col sm:flex-row sm:items-center gap-5 sm:gap-8">
                       <div className="w-24 h-24 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-slate-400 relative overflow-hidden group shadow-inner">
                         {avatarSource ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -438,11 +438,11 @@ export default function SettingsPage() {
                       </div>
                     </div>
 
-                    <div className="pt-6 flex justify-between items-center border-t border-slate-50">
-                      <p className="text-xs font-bold text-slate-600">
+                    <div className="pt-6 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-t border-slate-50">
+                      <p className="text-xs font-bold text-slate-600 break-all">
                         Public URL: /creators/{profile?.creatorSlug || creatorSlug || "your-slug"}
                       </p>
-                      <Button type="submit" variant="secondary" className="h-12 px-6 rounded-xl text-xs" disabled={isSaving}>
+                      <Button type="submit" variant="secondary" className="h-12 px-6 rounded-xl text-xs w-full sm:w-auto" disabled={isSaving}>
                         {isSaving ? "Saving..." : "Update Profile"}
                       </Button>
                     </div>
@@ -450,7 +450,7 @@ export default function SettingsPage() {
                 </div>
 
                 <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-10 border-b border-slate-50 flex items-center gap-6">
+                  <div className="p-5 sm:p-8 lg:p-10 border-b border-slate-50 flex items-center gap-4 sm:gap-6">
                     <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shadow-sm">
                       <Settings2 className="w-6 h-6 text-slate-400" />
                     </div>
@@ -459,7 +459,7 @@ export default function SettingsPage() {
                       <p className="text-xs font-bold text-slate-600 mt-1 uppercase tracking-widest opacity-90">Pre-fill the Create Content form</p>
                     </div>
                   </div>
-                  <div className="p-10 space-y-6">
+                  <div className="p-5 sm:p-8 lg:p-10 space-y-6">
                     {defaultsMessage && (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-700">
                         {defaultsMessage}
@@ -523,7 +523,7 @@ export default function SettingsPage() {
 
             <div className="lg:col-span-1 space-y-10">
               <MotionReveal className="sticky top-24 space-y-10">
-                <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
+                <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
                   <div className="flex items-center gap-4 mb-8">
                     <div className="w-12 h-12 rounded-2xl bg-teal-50 flex items-center justify-center shrink-0 border border-teal-100">
                       <BellRing className="w-6 h-6 text-teal-600" />
@@ -538,8 +538,8 @@ export default function SettingsPage() {
 
                   <div className="space-y-6">
                     {NOTIFICATION_PREFS.map((pref, i) => (
-                      <div key={pref} className="flex justify-between items-center gap-6">
-                        <span className="text-[13px] font-bold text-slate-600 leading-snug">{pref}</span>
+                      <div key={pref} className="flex justify-between items-center gap-3 sm:gap-6">
+                        <span className="text-[13px] font-bold text-slate-600 leading-snug min-w-0">{pref}</span>
                         <label className="relative inline-flex items-center cursor-pointer shrink-0">
                           <input
                             type="checkbox"
@@ -557,7 +557,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
+                <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
                   <div className="flex items-center gap-4 mb-6">
                     <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center shrink-0 border border-slate-200">
                       <ShieldAlert className="w-6 h-6 text-slate-500" />
@@ -582,7 +582,7 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                <div className="bg-red-50 rounded-[2.5rem] border border-red-200 p-10">
+                <div className="bg-red-50 rounded-[2.5rem] border border-red-200 p-5 sm:p-8 lg:p-10">
                   <div className="flex items-center gap-4 mb-6">
                     <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center shrink-0 border border-red-200">
                       <AlertTriangle className="w-6 h-6 text-red-600" />

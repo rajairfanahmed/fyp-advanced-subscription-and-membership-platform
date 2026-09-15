@@ -8,6 +8,7 @@ import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { MotionItem, MotionReveal } from "@/components/ui/MotionReveal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { ConfirmPhraseDialog } from "@/components/admin/ConfirmPhraseDialog";
 import { cn } from "@/lib/utils";
 import {
   ChevronLeft,
@@ -17,6 +18,7 @@ import {
   Receipt,
   ShieldAlert,
   ShieldCheck,
+  Trash2,
   ExternalLink,
   DollarSign,
   CheckCircle2,
@@ -83,6 +85,7 @@ export default function AdminUserDetailPage() {
   const [actionPending, setActionPending] = useState(false);
   const [actionError, setActionError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [dialog, setDialog] = useState<null | "suspend" | "delete">(null);
 
   const load = useCallback(async () => {
     setIsLoading(true);
@@ -120,7 +123,10 @@ export default function AdminUserDetailPage() {
         {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ accountStatus: next }),
+          body: JSON.stringify({
+            accountStatus: next,
+            confirmationPhrase: next === "suspended" ? data.user.email : undefined,
+          }),
         }
       );
       const body = (await res.json().catch(() => ({}))) as
@@ -132,14 +138,40 @@ export default function AdminUserDetailPage() {
         );
       }
       setData(body as AdminUserDetailResponse);
+      setDialog(null);
       setFeedback(
-        next === "suspended" ? "User suspended." : "User restored."
+        next === "suspended" ? "User suspended. Billing is paused." : "User restored."
       );
     } catch (err) {
       setActionError(
         err instanceof Error ? err.message : "Failed to update user."
       );
     } finally {
+      setActionPending(false);
+    }
+  }
+
+  async function handleDelete() {
+    if (!data || actionPending) return;
+    setActionPending(true);
+    setActionError("");
+    setFeedback("");
+    try {
+      const res = await fetch(
+        `/api/admin/users/${encodeURIComponent(params.id)}`,
+        {
+          method: "DELETE",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmationPhrase: data.user.email }),
+        }
+      );
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        throw new Error(body.error || "Failed to delete user.");
+      }
+      window.location.href = "/admin/users";
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Failed to delete user.");
       setActionPending(false);
     }
   }
@@ -200,25 +232,40 @@ export default function AdminUserDetailPage() {
           title={user.name}
           subtitle={user.email || user.clerkUserId}
           action={
-            user.role === "admin" ? null : user.accountStatus === "suspended" ? (
-              <Button
-                variant="primary"
-                onClick={() => handleStatusChange("active")}
-                disabled={actionPending}
-                icon={<ShieldCheck className="w-4 h-4 ml-1" />}
-              >
-                {actionPending ? "Restoring…" : "Restore access"}
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                onClick={() => handleStatusChange("suspended")}
-                disabled={actionPending}
-                icon={<ShieldAlert className="w-4 h-4 ml-1" />}
-                className="bg-white border-slate-200"
-              >
-                {actionPending ? "Suspending…" : "Suspend account"}
-              </Button>
+            user.role === "admin" ? null : (
+              <div className="flex flex-col sm:flex-row gap-2">
+                {user.accountStatus === "suspended" ? (
+                  <Button
+                    variant="primary"
+                    onClick={() => handleStatusChange("active")}
+                    disabled={actionPending}
+                    icon={<ShieldCheck className="w-4 h-4 ml-1" />}
+                  >
+                    {actionPending ? "Restoring…" : "Restore access"}
+                  </Button>
+                ) : (
+                  <Button
+                    variant="secondary"
+                    onClick={() => setDialog("suspend")}
+                    disabled={actionPending}
+                    icon={<ShieldAlert className="w-4 h-4 ml-1" />}
+                    className="bg-white border-slate-200"
+                  >
+                    Suspend account
+                  </Button>
+                )}
+                {user.accountStatus !== "deleted" ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => setDialog("delete")}
+                    disabled={actionPending}
+                    icon={<Trash2 className="w-4 h-4 ml-1" />}
+                    className="text-rose-700 border-rose-200 hover:bg-rose-50"
+                  >
+                    Delete account
+                  </Button>
+                ) : null}
+              </div>
             )
           }
         />
@@ -471,6 +518,28 @@ export default function AdminUserDetailPage() {
           </div>
         </MotionReveal>
       </div>
+      <ConfirmPhraseDialog
+        open={dialog === "suspend"}
+        title="Suspend this account?"
+        description="Stripe collection pauses, Clerk sessions are revoked, and this user cannot consume content until restored. Type the account email to confirm."
+        phrase={user.email}
+        phraseHint="Type the account email:"
+        confirmLabel="Suspend account"
+        pending={actionPending}
+        onClose={() => setDialog(null)}
+        onConfirm={() => handleStatusChange("suspended")}
+      />
+      <ConfirmPhraseDialog
+        open={dialog === "delete"}
+        title="Delete this account?"
+        description="Subscriptions are cancelled and the profile is removed. Payment history is kept for the ledger. This cannot be undone."
+        phrase={user.email}
+        phraseHint="Type the account email:"
+        confirmLabel="Delete account"
+        pending={actionPending}
+        onClose={() => setDialog(null)}
+        onConfirm={handleDelete}
+      />
     </AdminShell>
   );
 }

@@ -17,6 +17,11 @@ import {
   Info,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import {
+  fetchWithTimeout,
+  RequestTimeoutError,
+} from "@/lib/http/fetch-timeout";
+import { useInFlightLock } from "@/lib/ui/useInFlightLock";
 import type {
   NotificationCategory,
   NotificationListResult,
@@ -69,7 +74,7 @@ function getCategoryIcon(category: NotificationCategory) {
 function getCategoryLabel(category: NotificationCategory) {
   switch (category) {
     case "renewal":
-      return "Renewal reminder";
+      return "Membership";
     case "payment":
       return "Payment update";
     case "content":
@@ -113,6 +118,8 @@ export default function NotificationsPage() {
   const [errorMessage, setErrorMessage] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [isMarkingAll, setIsMarkingAll] = useState(false);
+  const itemLock = useInFlightLock();
+  const markAllLock = useInFlightLock();
   const [loadNonce, setLoadNonce] = useState(0);
   const [preferences, setPreferences] = useState<NotificationPreferences>(DEFAULT_PREFERENCES);
   const [savedPreferences, setSavedPreferences] = useState<NotificationPreferences>(DEFAULT_PREFERENCES);
@@ -184,7 +191,7 @@ export default function NotificationsPage() {
   );
 
   async function handleToggleRead(notification: NotificationResponse) {
-    if (pendingId) return;
+    if (!itemLock.begin()) return;
     const nextRead = !notification.isRead;
     setPendingId(notification.id);
     setNotifications((prev) =>
@@ -195,13 +202,14 @@ export default function NotificationsPage() {
       )
     );
     try {
-      const res = await fetch(`/api/notifications/${notification.id}`, {
+      const res = await fetchWithTimeout(`/api/notifications/${notification.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isRead: nextRead }),
+        timeoutMs: 15_000,
       });
       if (!res.ok) throw new Error("Failed");
-    } catch {
+    } catch (error) {
       setNotifications((prev) =>
         prev.map((n) =>
           n.id === notification.id
@@ -209,14 +217,20 @@ export default function NotificationsPage() {
             : n
         )
       );
-      setErrorMessage("We couldn't update that notification. Please try again.");
+      setErrorMessage(
+        error instanceof RequestTimeoutError
+          ? "The notification service didn’t respond. Try again."
+          : "We couldn't update that notification. Please try again."
+      );
     } finally {
       setPendingId(null);
+      itemLock.end();
     }
   }
 
   async function handleMarkAllRead() {
-    if (isMarkingAll || unreadCount === 0) return;
+    if (unreadCount === 0) return;
+    if (!markAllLock.begin()) return;
     setIsMarkingAll(true);
     const previous = notifications;
     setNotifications((prev) =>
@@ -225,13 +239,21 @@ export default function NotificationsPage() {
       )
     );
     try {
-      const res = await fetch("/api/notifications", { method: "PATCH" });
+      const res = await fetchWithTimeout("/api/notifications", {
+        method: "PATCH",
+        timeoutMs: 15_000,
+      });
       if (!res.ok) throw new Error("Failed");
-    } catch {
+    } catch (error) {
       setNotifications(previous);
-      setErrorMessage("We couldn't mark everything as read. Please try again.");
+      setErrorMessage(
+        error instanceof RequestTimeoutError
+          ? "The notification service didn’t respond. Try again."
+          : "We couldn't mark everything as read. Please try again."
+      );
     } finally {
       setIsMarkingAll(false);
+      markAllLock.end();
     }
   }
 
@@ -284,7 +306,7 @@ export default function NotificationsPage() {
               <Badge variant="default">Inbox</Badge>
             </MotionItem>
             <MotionItem>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
                 Notifications
               </h1>
             </MotionItem>
@@ -298,9 +320,9 @@ export default function NotificationsPage() {
       </section>
 
       <Container className="max-w-5xl">
-        <div className="grid lg:grid-cols-3 gap-10">
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
 
-          <div className="lg:col-span-2 space-y-8">
+          <div className="lg:col-span-2 space-y-8 min-w-0">
 
             {listLoadError && (
               <MotionReveal>
@@ -327,7 +349,7 @@ export default function NotificationsPage() {
             {(isLoading || !listLoadError) && (
             <MotionReveal>
               <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-6 md:p-8 border-b border-slate-100 flex items-center justify-between gap-4">
+                <div className="p-5 sm:p-6 md:p-8 border-b border-slate-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
                   <div className="flex bg-slate-100 p-1 rounded-xl">
                     <button
                       onClick={() => setActiveTab("all")}
@@ -500,7 +522,7 @@ export default function NotificationsPage() {
 
           </div>
 
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-6 min-w-0">
 
             {/* ── 2. Notification Preference Card ── */}
             <MotionReveal className="space-y-6">

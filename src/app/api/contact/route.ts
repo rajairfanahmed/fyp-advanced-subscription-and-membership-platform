@@ -5,6 +5,7 @@ import { connectToMongoDB } from "@/lib/mongodb/connect";
 import { ContactModel, UserProfileModel } from "@/lib/mongodb/models";
 import { createNotification } from "@/lib/mongodb/notifications";
 import { getAdminEmails } from "@/lib/auth/roles";
+import { clientIp, rateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -47,6 +48,26 @@ function isValidEmail(value: string): boolean {
 }
 
 export async function POST(request: Request) {
+  try {
+    return await handleContactPost(request);
+  } catch (err) {
+    console.error("[POST /api/contact]", err);
+    return NextResponse.json(
+      { error: "We couldn't deliver your message. Please try again." },
+      { status: 500 }
+    );
+  }
+}
+
+async function handleContactPost(request: Request) {
+  const limited = rateLimit(`contact:${clientIp(request)}`, 5, 15 * 60 * 1000);
+  if (!limited.ok) {
+    return NextResponse.json(
+      { error: "Too many messages. Please wait a few minutes and try again." },
+      { status: 429, headers: rateLimitHeaders(limited) }
+    );
+  }
+
   let payload: unknown;
   try {
     payload = await request.json();
@@ -184,10 +205,11 @@ export async function POST(request: Request) {
     });
   } catch (err) {
     console.error("[POST /api/contact] failed to persist contact", err);
+    return NextResponse.json(
+      { error: "We couldn't deliver your message. Please try again." },
+      { status: 500 }
+    );
   }
 
-  return NextResponse.json({
-    ok: true,
-    deliveredToAdmins: delivered,
-  });
+  return NextResponse.json({ ok: true });
 }

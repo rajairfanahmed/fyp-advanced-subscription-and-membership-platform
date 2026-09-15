@@ -1,5 +1,6 @@
 import type Stripe from "stripe";
 
+import { assertCreatorIsAcceptingMembers } from "@/lib/account/status";
 import {
   assertAccountIsActive,
   ensureCurrentUserProfile,
@@ -10,8 +11,21 @@ import {
   PlanModel,
   SubscriptionModel,
 } from "@/lib/mongodb/models";
+import { notifyIfAllowed } from "@/lib/mongodb/notifications";
 import { getStripeClient } from "@/lib/stripe/client";
 import { syncPlanToStripe } from "@/lib/stripe/plan-sync";
+import {
+  cancelDuplicateStripeSubscriptions,
+  listLiveStripeSubscriptionsForCustomer,
+  stripeSubscriptionMatchesCreator,
+  updateStripeSubscriptionPrice,
+} from "@/lib/stripe/subscription-ops";
+import {
+  asAccessLevel,
+  CONSUME_STATUSES,
+} from "@/lib/membership/access";
+import { PLAN_TIER_RANK, planTierLabel } from "@/lib/membership/labels";
+import type { PlanAccessLevel } from "@/types/plan";
 
 type CreateCheckoutInput = {
   planId: string;
@@ -132,57 +146,12 @@ export async function createCheckoutSessionForPlan(
   if (!creator) {
     throw new Error("This plan's creator profile is missing.");
   }
+  await assertCreatorIsAcceptingMembers(plan.creatorClerkUserId);
 
   const existingSub = await SubscriptionModel.findOne({
     subscriberClerkUserId: synced.user.id,
     creatorClerkUserId: plan.creatorClerkUserId,
   });
-
-  if (
-    existingSub &&
-    existingSub.planId?.toString() === plan._id.toString() &&
-    existingSub.stripeSubscriptionId &&
-    (existingSub.status === "active" ||
-      existingSub.status === "trialing" ||
-      existingSub.status === "past_due") &&
-    !existingSub.cancelAtPeriodEnd
-  ) {
-    throw new Error("You already have this plan.");
-  }
-
-  // Same creator, already paying Stripe: swap the Price in place so we
-  // never open a second subscription (double billing).
-  if (
-    existingSub?.stripeSubscriptionId &&
-    (existingSub.status === "active" ||
-      existingSub.status === "trialing" ||
-      existingSub.status === "past_due") &&
-    plan.stripePriceId
-  ) {
-    const { updateStripeSubscriptionPrice } = await import(
-      "@/lib/stripe/subscription-ops"
-    );
-    const { upsertSubscriptionFromStripe } = await import("@/lib/stripe/webhook");
-    const stripeSub = await updateStripeSubscriptionPrice({
-      stripeSubscriptionId: existingSub.stripeSubscriptionId,
-      stripePriceId: plan.stripePriceId,
-      metadata: {
-        subscriberClerkUserId: synced.user.id,
-        creatorClerkUserId: plan.creatorClerkUserId,
-        planId: plan._id.toString(),
-        accessLevel: plan.accessLevel,
-      },
-    });
-    if (stripeSub) {
-      await upsertSubscriptionFromStripe(stripeSub, {
-        subscriberClerkUserId: synced.user.id,
-        creatorClerkUserId: plan.creatorClerkUserId,
-        planId: plan._id.toString(),
-        accessLevel: plan.accessLevel,
-      });
-      return { url: null, applied: true };
-    }
-  }
 
   const email =
     synced.user.primaryEmailAddress?.emailAddress ??
@@ -201,6 +170,173 @@ export async function createCheckoutSessionForPlan(
     creatorClerkUserId: plan.creatorClerkUserId,
   });
 
+  const creatorPlans = await PlanModel.find({
+    creatorClerkUserId: plan.creatorClerkUserId,
+  });
+  const creatorPriceIds = creatorPlans
+    .map((row) => row.stripePriceId)
+    .filter((id): id is string => Boolean(id));
+
+  const liveForCreator = (
+    await listLiveStripeSubscriptionsForCustomer(customerId)
+  ).filter((sub) =>
+    stripeSubscriptionMatchesCreator(sub, {
+      creatorClerkUserId: plan.creatorClerkUserId,
+      priceIds: creatorPriceIds,
+      keepStripeSubscriptionId: existingSub?.stripeSubscriptionId || "",
+    })
+  );
+
+  const keptStripeSub = await cancelDuplicateStripeSubscriptions(
+    liveForCreator,
+    existingSub?.stripeSubscriptionId || undefined
+  );
+
+  const liveStripeId = keptStripeSub?.id || existingSub?.stripeSubscriptionId || "";
+  const localLevel = asAccessLevel(existingSub?.accessLevel);
+  const localIsLivePaid = Boolean(
+    existingSub &&
+      localLevel !== "free" &&
+      existingSub.stripeSubscriptionId &&
+      CONSUME_STATUSES.includes(
+        existingSub.status as (typeof CONSUME_STATUSES)[number]
+      )
+  );
+  const currentLevel: PlanAccessLevel = localIsLivePaid
+    ? localLevel
+    : "free";
+  const targetLevel = plan.accessLevel as PlanAccessLevel;
+  const currentRank = PLAN_TIER_RANK[currentLevel] ?? 0;
+  const targetRank = PLAN_TIER_RANK[targetLevel] ?? 0;
+  const stripeIsLive = Boolean(
+    liveStripeId &&
+      keptStripeSub &&
+      (keptStripeSub.status === "active" ||
+        keptStripeSub.status === "trialing" ||
+        keptStripeSub.status === "past_due")
+  );
+
+  if (
+    localIsLivePaid &&
+    stripeIsLive &&
+    existingSub &&
+    existingSub.planId?.toString() === plan._id.toString() &&
+    !existingSub.cancelAtPeriodEnd
+  ) {
+    throw new Error(`You already have the ${planTierLabel(targetLevel)} plan with this creator.`);
+  }
+
+  if (
+    localIsLivePaid &&
+    stripeIsLive &&
+    liveStripeId &&
+    plan.stripePriceId &&
+    targetRank > currentRank
+  ) {
+    const stripeSub = await updateStripeSubscriptionPrice({
+      stripeSubscriptionId: liveStripeId,
+      stripePriceId: plan.stripePriceId,
+      metadata: {
+        subscriberClerkUserId: synced.user.id,
+        creatorClerkUserId: plan.creatorClerkUserId,
+        planId: plan._id.toString(),
+        accessLevel: plan.accessLevel,
+      },
+    });
+    if (stripeSub) {
+      const { upsertSubscriptionFromStripe } = await import("@/lib/stripe/webhook");
+      const doc = await upsertSubscriptionFromStripe(stripeSub, {
+        subscriberClerkUserId: synced.user.id,
+        creatorClerkUserId: plan.creatorClerkUserId,
+        planId: plan._id.toString(),
+        accessLevel: plan.accessLevel,
+      });
+      try {
+        await notifyIfAllowed({
+          recipientClerkUserId: synced.user.id,
+          category: "renewal",
+          title: `Upgraded to ${planTierLabel(targetLevel)}`,
+          message: `You now have ${planTierLabel(targetLevel)} access to ${creator.creatorName}. The change is active immediately.`,
+          link: `/creators/${creator.creatorSlug}`,
+          metadata: { event: "subscription.upgraded", accessLevel: targetLevel },
+        });
+        await notifyIfAllowed({
+          recipientClerkUserId: plan.creatorClerkUserId,
+          category: "creator",
+          title: "Subscriber upgraded",
+          message: `A member upgraded to your ${planTierLabel(targetLevel)} plan.`,
+          link: "/creator/subscribers",
+          creatorWorkspaceAlertKey: "newSubscriber",
+          metadata: { event: "subscription.upgraded", accessLevel: targetLevel },
+        });
+      } catch (error) {
+        console.warn("[checkout] upgrade notify", error);
+      }
+      void doc;
+      if (!doc) {
+        throw new Error(
+          "Your membership could not be saved after the upgrade. Refresh and try again."
+        );
+      }
+      return { url: null, applied: true };
+    }
+  }
+
+  if (localIsLivePaid && stripeIsLive && targetRank < currentRank) {
+    throw new Error(
+      `You already have ${planTierLabel(currentLevel)} with this creator. Downgrades take effect when the current period ends — cancel from Subscription if you want to change later.`
+    );
+  }
+
+  if (
+    localIsLivePaid &&
+    existingSub &&
+    existingSub.planId?.toString() === plan._id.toString() &&
+    existingSub.stripeSubscriptionId &&
+    (existingSub.status === "active" ||
+      existingSub.status === "trialing" ||
+      existingSub.status === "past_due") &&
+    !existingSub.cancelAtPeriodEnd
+  ) {
+    throw new Error(`You already have the ${planTierLabel(targetLevel)} plan with this creator.`);
+  }
+
+  if (
+    localIsLivePaid &&
+    existingSub?.stripeSubscriptionId &&
+    (existingSub.status === "active" ||
+      existingSub.status === "trialing" ||
+      existingSub.status === "past_due") &&
+    plan.stripePriceId &&
+    targetRank > currentRank
+  ) {
+    const stripeSub = await updateStripeSubscriptionPrice({
+      stripeSubscriptionId: existingSub.stripeSubscriptionId,
+      stripePriceId: plan.stripePriceId,
+      metadata: {
+        subscriberClerkUserId: synced.user.id,
+        creatorClerkUserId: plan.creatorClerkUserId,
+        planId: plan._id.toString(),
+        accessLevel: plan.accessLevel,
+      },
+    });
+    if (stripeSub) {
+      const { upsertSubscriptionFromStripe } = await import("@/lib/stripe/webhook");
+      const doc = await upsertSubscriptionFromStripe(stripeSub, {
+        subscriberClerkUserId: synced.user.id,
+        creatorClerkUserId: plan.creatorClerkUserId,
+        planId: plan._id.toString(),
+        accessLevel: plan.accessLevel,
+      });
+      if (!doc) {
+        throw new Error(
+          "Your membership could not be saved after the upgrade. Refresh and try again."
+        );
+      }
+      return { url: null, applied: true };
+    }
+  }
+
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||
@@ -212,31 +348,58 @@ export async function createCheckoutSessionForPlan(
     input.cancelUrl ||
     `${baseUrl}/creators/${creator.creatorSlug}?checkout=cancelled`;
 
-  const session = await stripe.checkout.sessions.create({
-    mode: "subscription",
-    customer: customerId,
-    client_reference_id: synced.user.id,
-    line_items: [{ price: plan.stripePriceId, quantity: 1 }],
-    success_url: successUrl,
-    cancel_url: cancelUrl,
-    allow_promotion_codes: true,
-    billing_address_collection: "auto",
-    metadata: {
-      subscriber_clerk_user_id: synced.user.id,
-      creator_clerk_user_id: plan.creatorClerkUserId,
-      creator_profile_id: creator._id.toString(),
-      plan_id: plan._id.toString(),
-      access_level: plan.accessLevel,
-    },
-    subscription_data: {
+  // Free follow / no local paid membership must always open hosted Checkout.
+  // Cancel leftover Stripe subs for this creator so we do not reuse them as
+  // an in-place upgrade and skip payment.
+  if (!localIsLivePaid && liveForCreator.length > 0) {
+    await Promise.all(
+      liveForCreator.map((s) =>
+        stripe.subscriptions.cancel(s.id).catch((error) => {
+          console.warn(
+            "[checkout] cancel leftover stripe before paid checkout",
+            s.id,
+            error
+          );
+        })
+      )
+    );
+  }
+
+  const session = await stripe.checkout.sessions.create(
+    {
+      mode: "subscription",
+      customer: customerId,
+      client_reference_id: synced.user.id,
+      line_items: [{ price: plan.stripePriceId, quantity: 1 }],
+      success_url: successUrl,
+      cancel_url: cancelUrl,
+      allow_promotion_codes: true,
+      billing_address_collection: "auto",
+      payment_method_collection: "if_required",
+      customer_update: { name: "auto", address: "auto" },
+      saved_payment_method_options: {
+        payment_method_save: "enabled",
+      },
       metadata: {
         subscriber_clerk_user_id: synced.user.id,
         creator_clerk_user_id: plan.creatorClerkUserId,
+        creator_profile_id: creator._id.toString(),
         plan_id: plan._id.toString(),
         access_level: plan.accessLevel,
       },
+      subscription_data: {
+        metadata: {
+          subscriber_clerk_user_id: synced.user.id,
+          creator_clerk_user_id: plan.creatorClerkUserId,
+          plan_id: plan._id.toString(),
+          access_level: plan.accessLevel,
+        },
+      },
     },
-  });
+    {
+      idempotencyKey: `asmp_checkout_${synced.user.id}_${plan._id.toString()}_${Math.floor(Date.now() / 120_000)}`,
+    }
+  );
 
   if (!session.url) {
     throw new Error("Stripe did not return a checkout URL.");

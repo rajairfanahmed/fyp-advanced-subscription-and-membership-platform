@@ -9,7 +9,15 @@ import { Container } from "@/components/layout/Container";
 import { MotionReveal, MotionItem } from "@/components/ui/MotionReveal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { FormField } from "@/components/forms/FormField";
 import { ArrowRight, Loader2, ChevronLeft } from "lucide-react";
+import {
+  passwordStrength,
+  validateEmail,
+  validatePassword,
+  validatePasswordConfirm,
+} from "@/lib/auth/form-validation";
+import { cn } from "@/lib/utils";
 
 function ResetPasswordForm() {
   const router = useRouter();
@@ -24,6 +32,13 @@ function ResetPasswordForm() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [fieldErrors, setFieldErrors] = useState<{
+    email?: string;
+    code?: string;
+    newPassword?: string;
+    confirmPassword?: string;
+  }>({});
+  const strength = passwordStrength(newPassword);
 
   // Retrieve email from query or sessionStorage (set by forgot-password page)
   useEffect(() => {
@@ -63,13 +78,15 @@ function ResetPasswordForm() {
     return null;
   }
 
-  function validate(): string | null {
-    if (!email.trim()) return "Please enter your email address.";
-    if (!code.trim()) return "Please enter the reset code from your email.";
-    if (!newPassword) return "Please enter your new password.";
-    if (newPassword.length < 8) return "Password must be at least 8 characters.";
-    if (newPassword !== confirmPassword) return "Passwords do not match.";
-    return null;
+  function validate(): boolean {
+    const next = {
+      email: validateEmail(email) ?? undefined,
+      code: code.trim() ? undefined : "Please enter the reset code from your email.",
+      newPassword: validatePassword(newPassword, "strength") ?? undefined,
+      confirmPassword: validatePasswordConfirm(newPassword, confirmPassword) ?? undefined,
+    };
+    setFieldErrors(next);
+    return !next.email && !next.code && !next.newPassword && !next.confirmPassword;
   }
 
   async function handleFormSubmit(e: React.FormEvent) {
@@ -79,37 +96,26 @@ function ResetPasswordForm() {
       return;
     }
 
-    const validationError = validate();
-    if (validationError) {
-      setError(validationError);
-      return;
-    }
+    if (!validate()) return;
 
     setError("");
     setIsSubmitting(true);
 
     try {
-      // Attempt to reset the password with the code
       const result = await signIn.attemptFirstFactor({
         strategy: "reset_password_email_code",
-        code,
+        code: code.trim(),
         password: newPassword,
       });
 
       if (result.status === "complete") {
-        // Do NOT auto-login after password reset.
-        // Always redirect to /login so user logs in with new password.
         sessionStorage.removeItem("platform_reset_email");
         window.location.href = "/login?reset=success";
       } else {
         setError("Your session could not be completed. Please try again.");
       }
-    } catch (err: unknown) {
-      const clerkError = err as { errors?: { message: string }[] };
-      setError(
-        clerkError.errors?.[0]?.message ||
-        "The verification code is invalid or expired."
-      );
+    } catch {
+      setError("The verification code is invalid or expired. Please request a new one.");
     } finally {
       setIsSubmitting(false);
     }
@@ -130,8 +136,8 @@ function ResetPasswordForm() {
               Back
             </Link>
             <Badge variant="emerald" className="mb-4 mx-auto">Security Update</Badge>
-            <h1 className="text-4xl md:text-5xl font-black font-display text-[var(--color-ink)] mb-4 tracking-tight">
-              Create A New Password
+            <h1 className="text-3xl sm:text-4xl md:text-5xl font-black font-display text-[var(--color-ink)] mb-4 tracking-tight">
+              Create a new password
             </h1>
             <p className="text-lg text-[var(--color-muted)] font-medium leading-relaxed">
               Enter the code from your email and choose a new password.
@@ -139,7 +145,7 @@ function ResetPasswordForm() {
           </MotionItem>
 
           <MotionItem className="w-full">
-            <div className="bg-white rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 p-8 md:p-10 relative overflow-hidden text-left">
+            <div className="bg-white rounded-[2rem] border border-slate-200 shadow-xl shadow-slate-200/50 p-5 sm:p-8 md:p-10 relative overflow-hidden text-left">
               <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-emerald-400 to-sky-400" />
 
               {/* Error Message */}
@@ -149,63 +155,74 @@ function ResetPasswordForm() {
                 </div>
               )}
 
-              <form className="space-y-6" onSubmit={handleFormSubmit}>
+              <form className="space-y-6" onSubmit={handleFormSubmit} noValidate>
+                <FormField
+                  id="reset-email"
+                  label="Email"
+                  type="email"
+                  autoComplete="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  readOnly={emailIsReadonly}
+                  placeholder="jane@example.com"
+                  error={fieldErrors.email}
+                  hint="Start from Forgot password to request a reset code."
+                />
 
-                {/* Email (readonly if safely passed from /forgot-password) */}
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">Email</label>
-                  <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
-                    readOnly={emailIsReadonly}
-                    placeholder="jane@example.com"
-                    className={emailIsReadonly
-                      ? "w-full px-4 py-3 bg-slate-100 border border-slate-200 rounded-xl font-medium text-slate-500 cursor-not-allowed"
-                      : "w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-[var(--color-ink)]"
+                <FormField
+                  id="reset-code"
+                  label="Reset Code"
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  placeholder="Enter code from email"
+                  value={code}
+                  error={fieldErrors.code}
+                  className="text-center text-lg tracking-widest"
+                  onChange={(e) => {
+                    setCode(e.target.value);
+                    if (fieldErrors.code) {
+                      setFieldErrors((prev) => ({
+                        ...prev,
+                        code: e.target.value.trim() ? undefined : "Please enter the reset code from your email.",
+                      }));
                     }
-                  />
-                  <p className="text-xs font-medium text-slate-500">
-                    Start from <Link href="/forgot-password" className="font-bold text-sky-600 hover:text-sky-700 transition-colors">Forgot password</Link> to request a reset code.
-                  </p>
-                </div>
+                  }}
+                />
 
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">Reset Code</label>
-                  <input
-                    type="text"
-                    placeholder="Enter code from email"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-[var(--color-ink)] text-center text-lg tracking-widest"
-                  />
-                </div>
+                <FormField
+                  id="reset-password"
+                  label="New Password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={newPassword}
+                  error={fieldErrors.newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
+                />
 
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">New Password</label>
-                  <input
-                    type="password"
-                    placeholder="••••••••"
-                    value={newPassword}
-                    onChange={(e) => setNewPassword(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-[var(--color-ink)]"
-                  />
-                </div>
+                <FormField
+                  id="reset-confirm"
+                  label="Confirm New Password"
+                  type="password"
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={confirmPassword}
+                  error={fieldErrors.confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                />
 
-                <div className="space-y-2">
-                  <label className="text-sm font-bold text-slate-700">Confirm New Password</label>
-                  <input
-                    type="password"
-                    placeholder="••••••••"
-                    value={confirmPassword}
-                    onChange={(e) => setConfirmPassword(e.target.value)}
-                    className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all font-medium text-[var(--color-ink)]"
-                  />
+                <div className="flex flex-wrap gap-2">
+                  <span className={cn("px-2 py-1 rounded-md border text-xs font-medium", strength.minLength ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-600 border-slate-200")}>
+                    At least 8 characters
+                  </span>
+                  <span className={cn("px-2 py-1 rounded-md border text-xs font-medium", strength.number ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-600 border-slate-200")}>
+                    One number
+                  </span>
+                  <span className={cn("px-2 py-1 rounded-md border text-xs font-medium", strength.uppercase ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-50 text-slate-600 border-slate-200")}>
+                    One uppercase letter
+                  </span>
                 </div>
-
-                <p className="text-xs font-medium text-slate-500">
-                  Use a strong password that is not used on another platform.
-                </p>
 
                 <div className="pt-2">
                   <Button
@@ -213,7 +230,7 @@ function ResetPasswordForm() {
                     variant="primary"
                     size="lg"
                     className="w-full"
-                    disabled={isSubmitting}
+                    disabled={isSubmitting || !isLoaded}
                     icon={isSubmitting ? <Loader2 className="w-4 h-4 ml-1 animate-spin" /> : <ArrowRight className="w-4 h-4 ml-1" />}
                   >
                     {isSubmitting ? "Updating password..." : "Update Password"}

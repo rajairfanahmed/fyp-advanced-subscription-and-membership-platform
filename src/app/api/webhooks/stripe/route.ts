@@ -7,6 +7,10 @@ import {
   StripeNotConfiguredError,
 } from "@/lib/stripe/client";
 import { handleStripeWebhookEvent } from "@/lib/stripe/webhook";
+import {
+  claimStripeWebhookEvent,
+  releaseStripeWebhookEvent,
+} from "@/lib/mongodb/stripe-events";
 
 /**
  * Disable the default body parser — Stripe needs the raw request
@@ -66,11 +70,20 @@ export async function POST(req: Request) {
     const message =
       error instanceof Error ? error.message : "Signature verification failed.";
     console.error("[stripe:webhook] signature verification failed", message);
-    return NextResponse.json({ error: message }, { status: 400 });
+    return NextResponse.json({ error: "Invalid signature." }, { status: 400 });
   }
 
   try {
-    await handleStripeWebhookEvent(event);
+    const claimed = await claimStripeWebhookEvent(event.id, event.type);
+    if (!claimed) {
+      return NextResponse.json({ received: true, duplicate: true }, { status: 200 });
+    }
+    try {
+      await handleStripeWebhookEvent(event);
+    } catch (error) {
+      await releaseStripeWebhookEvent(event.id);
+      throw error;
+    }
   } catch (error) {
     console.error("[stripe:webhook]", event.type, error);
     // Return 500 so Stripe retries the delivery. The handler itself is

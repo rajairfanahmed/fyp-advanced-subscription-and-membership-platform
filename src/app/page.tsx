@@ -7,8 +7,10 @@ import { Button } from "@/components/ui/Button";
 import { DashboardPreviewCard } from "@/components/cards/DashboardPreviewCard";
 import { SubscriberContentCard } from "@/components/cards/SubscriberContentCard";
 import { BenefitCard } from "@/components/cards/BenefitCard";
+import { GuestHowItWorks } from "@/components/home/GuestHowItWorks";
 import { Container } from "@/components/layout/Container";
 import { MotionReveal, MotionItem } from "@/components/ui/MotionReveal";
+import { useAuth } from "@clerk/nextjs";
 import type { PublicContent } from "@/lib/mongodb/public-data";
 
 type HomeContentCard = {
@@ -47,6 +49,7 @@ function publicContentToHomeCard(content: PublicContent): HomeContentCard {
         : ((content.fileSubtype || "pdf").toUpperCase() as "PDF" | "ZIP" | "RAR");
 
   const isLocked = content.requiredPlan !== "free";
+  const libraryHref = `/library/${content.id}`;
   const creatorHref = content.creatorSlug
     ? `/creators/${content.creatorSlug}`
     : "/creators";
@@ -64,12 +67,13 @@ function publicContentToHomeCard(content: PublicContent): HomeContentCard {
           : "Free",
     isLocked,
     thumbnailUrl: content.thumbnailUrl,
-    href: creatorHref,
-    unlockHref: creatorHref,
+    href: libraryHref,
+    unlockHref: isLocked ? creatorHref : libraryHref,
   };
 }
 
 export default function HomePage() {
+  const { isLoaded, isSignedIn } = useAuth();
   const [homepageContent, setHomepageContent] = useState<HomeContentCard[]>([]);
   const [contentLoading, setContentLoading] = useState(true);
 
@@ -122,7 +126,7 @@ export default function HomePage() {
               </MotionItem>
 
               <MotionItem>
-                <h1 className="text-5xl md:text-6xl lg:text-[4.5rem] font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6">
+                <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-[4.5rem] font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6">
                   Turn Paid Content Into{" "}
                   <span className="text-gradient-primary">Recurring Membership Revenue</span>
                 </h1>
@@ -142,6 +146,14 @@ export default function HomePage() {
                   Explore Content
                 </Button>
               </MotionItem>
+
+              {isLoaded && !isSignedIn ? (
+                <MotionItem>
+                  <p className="mt-6 text-sm font-medium text-slate-500 max-w-xl">
+                    No account needed to browse. Sign up when you want to follow a creator or unlock paid content.
+                  </p>
+                </MotionItem>
+              ) : null}
             </MotionReveal>
 
             {/* Right Column: Premium Dashboard Preview */}
@@ -153,6 +165,8 @@ export default function HomePage() {
           </div>
         </Container>
       </section>
+
+      <GuestHowItWorks />
 
       {/* ── 2. Trust Proof Section ── */}
       <section className="py-16 bg-white border-b border-[var(--color-border)]">
@@ -212,7 +226,7 @@ export default function HomePage() {
       </section>
 
       {/* ── 4. Creator Workflow Section ── */}
-      <section className="py-24 lg:py-32 bg-white border-y border-[var(--color-border)]">
+      <section className="py-16 md:py-24 lg:py-32 bg-white border-y border-[var(--color-border)]">
         <Container>
           <div className="grid lg:grid-cols-2 gap-16 items-center">
             <MotionReveal className="order-2 lg:order-1" staggerChildren={0.15}>

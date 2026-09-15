@@ -222,18 +222,28 @@ export type PlatformSettingsDocument = Timestamps & {
   renewalReminderLeadDays: number;
   failureAlertCadence: string;
   maintenanceMode: boolean;
+  platformFeeBps: number;
 };
 
 type QueryLike<T> = Promise<T[]> & {
   sort: (spec?: unknown) => QueryLike<T>;
   limit: (n?: number) => QueryLike<T>;
+  skip: (n?: number) => QueryLike<T>;
   select: (fields?: unknown) => QueryLike<T>;
   lean: () => QueryLike<T>;
 };
 
+type ThenableDoc<T> = Promise<T | null> & {
+  lean: () => Promise<T | null>;
+  select: (fields?: unknown) => ThenableDoc<T>;
+  sort: (spec?: unknown) => ThenableDoc<T>;
+  limit: (n?: number) => ThenableDoc<T>;
+  skip: (n?: number) => ThenableDoc<T>;
+};
+
 type CompatModel<T> = {
   find: (filter?: unknown, projection?: unknown) => QueryLike<T>;
-  findOne: (filter?: unknown, projection?: unknown) => any;
+  findOne: (filter?: unknown, projection?: unknown) => ThenableDoc<T>;
   findById: (id?: unknown) => Promise<T | null>;
   exists: (filter?: unknown) => Promise<unknown>;
   countDocuments: (filter?: unknown) => Promise<number>;
@@ -242,7 +252,11 @@ type CompatModel<T> = {
   updateOne: (filter?: unknown, update?: unknown) => Promise<{ modifiedCount?: number }>;
   updateMany: (filter?: unknown, update?: unknown) => Promise<{ modifiedCount?: number }>;
   findByIdAndUpdate: (id?: unknown, update?: unknown) => Promise<T | null>;
-  findOneAndUpdate: (filter?: unknown, update?: unknown, options?: unknown) => any;
+  findOneAndUpdate: (
+    filter?: unknown,
+    update?: unknown,
+    options?: unknown
+  ) => Promise<T | null>;
   findOneAndDelete: (filter?: unknown) => Promise<T | null>;
   deleteOne: (filter?: unknown) => Promise<{ deletedCount?: number }>;
   deleteMany: (filter?: unknown) => Promise<{ deletedCount?: number }>;

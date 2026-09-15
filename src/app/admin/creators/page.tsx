@@ -15,6 +15,8 @@ import {
   TrendingUp,
   AlertCircle,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import type { AdminCreatorRow, AdminCreatorsResponse } from "@/types/admin-stats";
 
@@ -35,8 +37,14 @@ export default function AdminCreatorsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]["id"]>("all");
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -44,7 +52,13 @@ export default function AdminCreatorsPage() {
       setIsLoading(true);
       setErrorMessage("");
       try {
-        const res = await fetch("/api/admin/creators", { cache: "no-store" });
+        const params = new URLSearchParams({
+          page: String(page),
+          q: debouncedQuery,
+        });
+        const res = await fetch(`/api/admin/creators?${params.toString()}`, {
+          cache: "no-store",
+        });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
           throw new Error(body.error || "Failed to load creators.");
@@ -64,7 +78,7 @@ export default function AdminCreatorsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, debouncedQuery]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -262,7 +276,7 @@ export default function AdminCreatorsPage() {
                             </Badge>
                           </td>
                           <td className="p-8 text-right">
-                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center justify-end gap-3 opacity-100 transition-opacity">
                               <Link
                                 href={`/creators/${creator.creatorSlug}`}
                                 target="_blank"
@@ -332,6 +346,7 @@ export default function AdminCreatorsPage() {
                     </div>
                   ))}
                 </div>
+                <AdminPager page={data?.page} onPage={setPage} />
               </>
             )}
           </div>

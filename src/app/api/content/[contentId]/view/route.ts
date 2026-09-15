@@ -4,6 +4,7 @@ import {
   getGuardedPublishedContent,
   recordContentView,
 } from "@/lib/mongodb/content";
+import { clientIp, rateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
 
 /**
  * POST /api/content/[contentId]/view
@@ -14,11 +15,21 @@ import {
  * paywall hits do not inflate analytics.
  */
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ contentId: string }> }
 ) {
   try {
     const { contentId } = await params;
+    const ip = clientIp(req);
+    const perItem = rateLimit(`view:${ip}:${contentId}`, 8, 60 * 60 * 1000);
+    const perIp = rateLimit(`view:${ip}`, 40, 15 * 60 * 1000);
+    if (!perItem.ok || !perIp.ok) {
+      const blocked = !perItem.ok ? perItem : perIp;
+      return NextResponse.json(
+        { ok: true, counted: false, error: "View limit reached." },
+        { status: 200, headers: rateLimitHeaders(blocked) }
+      );
+    }
     const guarded = await getGuardedPublishedContent(contentId);
     if (!guarded) {
       return NextResponse.json({ error: "Content not found." }, { status: 404 });

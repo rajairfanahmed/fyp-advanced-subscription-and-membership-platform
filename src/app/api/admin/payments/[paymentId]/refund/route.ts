@@ -1,7 +1,13 @@
 import { isRecordId } from "@/lib/db/ids";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requireAdminContext } from "@/lib/auth/require-admin";
+import { adminErrorJson } from "@/lib/auth/admin-http";
+import {
+  assertConfirmationPhrase,
+  auditAdmin,
+  confirmationPhraseOf,
+  requireAdminMutation,
+} from "@/lib/auth/require-admin";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import { PaymentModel, SubscriptionModel } from "@/lib/mongodb/models";
 import { createNotification } from "@/lib/mongodb/notifications";
@@ -10,20 +16,12 @@ import {
   StripeNotConfiguredError,
 } from "@/lib/stripe/client";
 
-/**
- * POST /api/admin/payments/[paymentId]/refund
- *
- * Refund a successful charge through Stripe. We require a real
- * `stripePaymentIntentId` (or `stripeChargeId`) on the row; manually
- * created payments cannot be refunded automatically. On success we
- * mark the row as `refunded` and notify the subscriber.
- */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ paymentId: string }> }
 ) {
   try {
-    await requireAdminContext();
+    const ctx = await requireAdminMutation(req);
     await connectToMongoDB();
 
     const { paymentId } = await context.params;
@@ -34,6 +32,18 @@ export async function POST(
       );
     }
 
+    let body: unknown = {};
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+    assertConfirmationPhrase(
+      confirmationPhraseOf(body),
+      "REFUND",
+      "Type REFUND to issue this refund."
+    );
+
     const payment = await PaymentModel.findById(paymentId);
     if (!payment) {
       return NextResponse.json(
@@ -43,8 +53,13 @@ export async function POST(
     }
     if (payment.status === "refunded") {
       return NextResponse.json(
-        { error: "Payment is already refunded." },
-        { status: 400 }
+        {
+          ok: true,
+          id: payment._id.toString(),
+          status: payment.status,
+          idempotent: true,
+        },
+        { status: 200 }
       );
     }
     if (payment.status !== "succeeded") {
@@ -64,13 +79,16 @@ export async function POST(
     }
 
     const stripe = getStripeClient();
-    await stripe.refunds.create({
-      payment_intent: payment.stripePaymentIntentId || undefined,
-      charge: payment.stripePaymentIntentId
-        ? undefined
-        : payment.stripeChargeId,
-      reason: "requested_by_customer",
-    });
+    await stripe.refunds.create(
+      {
+        payment_intent: payment.stripePaymentIntentId || undefined,
+        charge: payment.stripePaymentIntentId
+          ? undefined
+          : payment.stripeChargeId,
+        reason: "requested_by_customer",
+      },
+      { idempotencyKey: `admin-refund-${payment._id.toString()}` }
+    );
 
     payment.status = "refunded";
     await payment.save();
@@ -109,6 +127,13 @@ export async function POST(
       console.warn("[admin:payment:refund:notify]", error);
     }
 
+    await auditAdmin(ctx, req, {
+      action: "payment.refund",
+      targetType: "payment",
+      targetId: payment._id.toString(),
+      payload: { amountCents: payment.amountCents, currency: payment.currency },
+    });
+
     return NextResponse.json(
       {
         ok: true,
@@ -124,15 +149,7 @@ export async function POST(
         { status: 503 }
       );
     }
-    const message =
-      error instanceof Error ? error.message : "Failed to refund payment.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:payment:refund]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to refund payment.");
   }
 }

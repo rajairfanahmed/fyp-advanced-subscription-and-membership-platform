@@ -1,5 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { parseAdminListQuery } from "@/lib/auth/admin-list-query";
+import { adminErrorJson } from "@/lib/auth/admin-http";
 import { requireAdminContext } from "@/lib/auth/require-admin";
 import { getAdminContent } from "@/lib/mongodb/admin-stats";
 import { csvHeaders, csvTimestamp, toCsv } from "@/lib/csv";
@@ -7,10 +9,9 @@ import { csvHeaders, csvTimestamp, toCsv } from "@/lib/csv";
 export async function GET(req: NextRequest) {
   try {
     await requireAdminContext();
-    const data = await getAdminContent();
-    const format = req.nextUrl.searchParams.get("format")?.toLowerCase();
-
-    if (format === "csv") {
+    const list = parseAdminListQuery(req.nextUrl.searchParams);
+    const data = await getAdminContent(list);
+    if (list.csv) {
       const csv = toCsv(
         [
           "ID",
@@ -50,15 +51,7 @@ export async function GET(req: NextRequest) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load content.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:content]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to load content.");
   }
 }

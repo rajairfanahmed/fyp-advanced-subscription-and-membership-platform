@@ -12,9 +12,8 @@ type RouteContext = { params: Promise<{ id: string }> };
  * PATCH /api/subscriptions/[id]
  * Body: { cancel?: boolean; reactivate?: boolean }
  *
- * Lets the current subscriber cancel or (free-tier only) reactivate
- * their own subscription. Paid plans must reactivate via Stripe; the
- * helper enforces that and returns an error.
+ * Lets the current subscriber cancel, resume a paid plan that is still
+ * in the cancel-at-period-end window, or reactivate a canceled free follow.
  */
 export async function PATCH(req: Request, context: RouteContext) {
   const { userId } = await auth();

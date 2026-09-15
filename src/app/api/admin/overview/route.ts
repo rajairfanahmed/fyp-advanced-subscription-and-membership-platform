@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { adminErrorJson } from "@/lib/auth/admin-http";
 import { requireAdminContext } from "@/lib/auth/require-admin";
 import { getAdminOverview } from "@/lib/mongodb/admin-stats";
 
@@ -12,10 +13,7 @@ export async function GET() {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load overview.";
-    const status = message === "Not signed in." ? 401 : message === "Admin access required." ? 403 : 400;
     console.error("[admin:overview]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to load overview.");
   }
 }

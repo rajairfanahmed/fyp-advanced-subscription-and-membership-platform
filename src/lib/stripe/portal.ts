@@ -38,6 +38,26 @@ export async function createBillingPortalSessionForCurrentUser(
     );
   }
 
+  try {
+    const { listLiveStripeSubscriptionsForCustomer, cancelDuplicateStripeSubscriptions } =
+      await import("@/lib/stripe/subscription-ops");
+    const live = await listLiveStripeSubscriptionsForCustomer(sub.stripeCustomerId);
+    const byCreator = new Map<string, typeof live>();
+    for (const item of live) {
+      const creatorId = item.metadata?.creator_clerk_user_id || item.id;
+      const group = byCreator.get(creatorId) ?? [];
+      group.push(item);
+      byCreator.set(creatorId, group);
+    }
+    for (const group of byCreator.values()) {
+      if (group.length > 1) {
+        await cancelDuplicateStripeSubscriptions(group);
+      }
+    }
+  } catch (error) {
+    console.warn("[billing-portal] duplicate cleanup", error);
+  }
+
   const baseUrl =
     process.env.NEXT_PUBLIC_APP_URL?.trim() ||
     process.env.NEXT_PUBLIC_SITE_URL?.trim() ||

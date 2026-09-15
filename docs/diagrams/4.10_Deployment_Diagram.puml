@@ -1,0 +1,34 @@
+@startuml Deployment_Diagram
+!include _style.puml
+title Figure 4.10 : Deployment Diagram
+
+node "Client device" {
+  [Web browser]
+}
+
+node "Application host\n(Node.js / Next.js 15)" {
+  [ASMP server]
+}
+
+cloud "Clerk SaaS" as Clerk
+cloud "Stripe SaaS" as Stripe
+database "PostgreSQL\nAdvancedSubscription_\nMembershipPlatform" as PG
+cloud "Cloudflare R2 bucket" as R2
+
+[Web browser] --> [ASMP server] : HTTPS
+[Web browser] --> Clerk : sign in / sign up
+[Web browser] --> Stripe : hosted Checkout / Portal
+[ASMP server] --> Clerk : verify session
+[ASMP server] --> Stripe : Price, Session, webhook
+[ASMP server] --> PG : SQL
+[ASMP server] --> R2 : S3 API upload / get
+
+note bottom
+  Local development: localhost:3000,
+  Stripe CLI forwards webhooks to
+  /api/webhooks/stripe.
+  Production hosting was not required
+  for the FYP scope.
+end note
+
+@enduml

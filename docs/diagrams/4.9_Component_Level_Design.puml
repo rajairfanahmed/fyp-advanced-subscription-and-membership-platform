@@ -1,0 +1,35 @@
+@startuml Component_Level_Design
+!include _style.puml
+title Figure 4.9 : Component Level Design
+
+package "Browser" {
+  [App Router pages]
+  [Clerk sign-in widgets]
+}
+
+package "Next.js 15 server" {
+  [Clerk middleware]
+  [API route handlers]
+  [PostgreSQL adapter]
+  [Stripe module]
+  [R2 storage module]
+}
+
+cloud "Clerk" as Clerk
+cloud "Stripe\nCheckout / Portal / Webhooks" as Stripe
+database "PostgreSQL" as PG
+cloud "Cloudflare R2" as R2
+
+[App Router pages] --> [API route handlers]
+[Clerk sign-in widgets] --> Clerk
+[Clerk middleware] --> Clerk
+[API route handlers] --> [Clerk middleware]
+[API route handlers] --> [PostgreSQL adapter]
+[API route handlers] --> [Stripe module]
+[API route handlers] --> [R2 storage module]
+[PostgreSQL adapter] --> PG
+[Stripe module] --> Stripe
+[R2 storage module] --> R2
+Stripe --> [API route handlers] : /api/webhooks/stripe
+
+@enduml

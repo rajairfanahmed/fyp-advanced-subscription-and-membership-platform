@@ -8,7 +8,9 @@ import { Button } from "@/components/ui/Button";
 import { SubscriberContentCard } from "@/components/cards/SubscriberContentCard";
 import { Search } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { PaymentIssueBanner } from "@/components/billing/PaymentIssueBanner";
 import type { ContentResponse } from "@/types/content";
+import type { SubscriptionResponse } from "@/types/subscription";
 
 const FILTERS = [
   "All",
@@ -101,6 +103,7 @@ export default function LibraryPage() {
   const [activeFilter, setActiveFilter] = useState<FilterValue>("All");
   const [query, setQuery] = useState("");
   const [cards, setCards] = useState<LibraryCard[]>([]);
+  const [subscriptions, setSubscriptions] = useState<SubscriptionResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -108,10 +111,19 @@ export default function LibraryPage() {
     async function loadContent() {
       setIsLoading(true);
       try {
-        const res = await fetch("/api/content", { cache: "no-store" });
-        if (!res.ok) throw new Error("Failed");
-        const data = (await res.json()) as { content: ContentResponse[] };
-        if (!cancelled) setCards((data.content ?? []).map(contentToCard));
+        const [contentRes, subRes] = await Promise.all([
+          fetch("/api/content", { cache: "no-store" }),
+          fetch("/api/subscriptions/me", { cache: "no-store" }),
+        ]);
+        if (!contentRes.ok) throw new Error("Failed");
+        const data = (await contentRes.json()) as { content: ContentResponse[] };
+        const subData = subRes.ok
+          ? ((await subRes.json()) as { subscriptions?: SubscriptionResponse[] })
+          : { subscriptions: [] };
+        if (!cancelled) {
+          setCards((data.content ?? []).map(contentToCard));
+          setSubscriptions(subData.subscriptions ?? []);
+        }
       } catch {
         if (!cancelled) setCards([]);
       } finally {
@@ -189,7 +201,7 @@ export default function LibraryPage() {
               <Badge variant="default">Premium Access</Badge>
             </MotionItem>
             <MotionItem>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-6">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-6">
                 Your Member{" "}
                 <span className="text-gradient-primary">Content Library</span>
               </h1>
@@ -259,9 +271,15 @@ export default function LibraryPage() {
         </Container>
       )}
 
+      {!isLoading && (
+        <Container className="mb-8 empty:hidden">
+          <PaymentIssueBanner subscriptions={subscriptions} />
+        </Container>
+      )}
+
       {!isLoading && visibleCards.length === 0 ? (
         <Container className="mb-20">
-          <div className="bg-white rounded-3xl border border-slate-200 p-10 md:p-14 text-center max-w-2xl mx-auto">
+          <div className="bg-white rounded-3xl border border-slate-200 p-6 sm:p-10 md:p-14 text-center max-w-2xl mx-auto">
             <h2 className="text-2xl font-black font-display text-[var(--color-ink)] mb-3">
               {query || activeFilter !== "All"
                 ? "No results"

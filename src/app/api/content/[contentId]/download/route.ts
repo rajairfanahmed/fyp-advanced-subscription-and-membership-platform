@@ -1,43 +1,51 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { consumeDenyMessage } from "@/lib/account/status";
 import {
   getGuardedPublishedContent,
   recordContentDownload,
 } from "@/lib/mongodb/content";
-import { consumeDownload, type DownloadQuotaSnapshot } from "@/lib/mongodb/download-quota";
+import {
+  consumeDownload,
+  releaseDownload,
+  type DownloadQuotaSnapshot,
+} from "@/lib/mongodb/download-quota";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import { isAdminEmail } from "@/lib/auth/roles";
 import { UserProfileModel } from "@/lib/mongodb/models";
 import { subscribeCurrentUserToFreeTier } from "@/lib/mongodb/subscriptions";
-import { getObjectFromCloudflareR2 } from "@/lib/storage";
+import { getObjectFromCloudflareR2, storageKeyFromPublicUrl } from "@/lib/storage";
+import { clientIp, rateLimit, rateLimitHeaders } from "@/lib/security/rate-limit";
+import { PRIVATE_NO_STORE } from "@/lib/http/cache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/**
- * POST /api/content/[contentId]/download
- *
- * Auth required. Re-runs the access guard, enforces the per-tier
- * monthly download quota (Free=5 · Basic=30 · Premium=∞), increments
- * `Content.downloadsCount`, and streams the file with
- * `Content-Disposition: attachment` so PDFs download like ZIP/RAR
- * instead of opening in the browser (which would let the subscriber
- * save the same file many times after a single quota hit).
- *
- * Free-tier files without a Follow row auto-create the free membership
- * so the 5/month quota is actually counted.
- *
- * Owners and admins always pass — neither pays for downloads.
- */
 export async function POST(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ contentId: string }> }
 ) {
   const { userId } = await auth();
   if (!userId) {
-    return NextResponse.json({ error: "Sign in to download." }, { status: 401 });
+    return NextResponse.json(
+      { error: "Sign in to download." },
+      { status: 401, headers: PRIVATE_NO_STORE }
+    );
   }
+
+  const ip = clientIp(req);
+  const perUser = rateLimit(`download:${userId}`, 20, 15 * 60 * 1000);
+  const perIp = rateLimit(`download:${ip}`, 40, 15 * 60 * 1000);
+  if (!perUser.ok || !perIp.ok) {
+    const blocked = !perUser.ok ? perUser : perIp;
+    return NextResponse.json(
+      { error: "Too many download attempts. Please wait and try again." },
+      { status: 429, headers: { ...PRIVATE_NO_STORE, ...rateLimitHeaders(blocked) } }
+    );
+  }
+
+  let reservedQuota = false;
 
   try {
     const { contentId } = await params;
@@ -48,7 +56,7 @@ export async function POST(
     if (profile?.accountStatus === "suspended" && !isAdmin) {
       return NextResponse.json(
         { error: "This account is suspended." },
-        { status: 403 }
+        { status: 403, headers: PRIVATE_NO_STORE }
       );
     }
 
@@ -56,27 +64,28 @@ export async function POST(
     if (!guarded) {
       return NextResponse.json(
         { error: "Content not found." },
-        { status: 404 }
+        { status: 404, headers: PRIVATE_NO_STORE }
       );
     }
     if (guarded.contentType !== "file") {
       return NextResponse.json(
         { error: "This content is not a downloadable file." },
-        { status: 400 }
+        { status: 400, headers: PRIVATE_NO_STORE }
       );
     }
     if (!guarded.accessGranted) {
       return NextResponse.json(
         {
-          error: "Subscribe to download this file.",
+          error:
+            consumeDenyMessage(guarded.denyReason) ??
+            "Subscribe to download this file.",
           requiredAccessLevel: guarded.requiredAccessLevel,
         },
-        { status: 403 }
+        { status: 403, headers: PRIVATE_NO_STORE }
       );
     }
 
     const isOwner = userId === guarded.creatorClerkUserId;
-
     let quotaSnapshot: DownloadQuotaSnapshot | null = null;
 
     if (!isOwner && !isAdmin) {
@@ -108,7 +117,9 @@ export async function POST(
             ? `Your current plan does not include downloads. Subscribe to ${creatorLabel} on Basic or Premium to download files.`
             : consume.reason === "quota_exhausted"
               ? `You've used all ${consume.quota.monthlyLimit ?? 0} downloads available this month from ${creatorLabel}. Upgrade to Premium for unlimited downloads or wait until the cycle resets.`
-              : `Follow ${creatorLabel} before downloading their files.`;
+              : consume.reason === "access_revoked"
+                ? `Your membership with ${creatorLabel} is no longer active. Update billing or subscribe again to download.`
+                : `Follow ${creatorLabel} before downloading their files.`;
 
         return NextResponse.json(
           {
@@ -116,69 +127,72 @@ export async function POST(
             requiredAccessLevel: guarded.requiredAccessLevel,
             quota: consume.quota,
           },
-          { status: 403 }
+          { status: 403, headers: PRIVATE_NO_STORE }
         );
       }
+      reservedQuota = true;
     }
 
     const result = await recordContentDownload(contentId);
-    if (!result || (!result.fileKey && !result.fileUrl)) {
+    const objectKey =
+      result?.fileKey ||
+      (result?.fileUrl ? storageKeyFromPublicUrl(result.fileUrl) : "") ||
+      "";
+    if (!result || !objectKey) {
+      if (reservedQuota) {
+        await releaseDownload({
+          subscriberClerkUserId: userId,
+          creatorClerkUserId: guarded.creatorClerkUserId,
+        }).catch(() => {});
+      }
       return NextResponse.json(
         { error: "Download is currently unavailable." },
-        { status: 404 }
+        { status: 404, headers: PRIVATE_NO_STORE }
       );
     }
 
     const fileName = attachmentFileName(
       result.fileName,
       result.fileSubtype || guarded.fileSubtype,
-      result.fileKey
+      objectKey
     );
 
-    let webStream: ReadableStream;
-    let contentLength: number | undefined;
-
-    if (result.fileKey) {
-      const object = await getObjectFromCloudflareR2(result.fileKey);
-      webStream = object.webStream;
-      contentLength = object.contentLength;
-    } else {
-      const upstream = await fetch(result.fileUrl);
-      if (!upstream.ok || !upstream.body) {
-        return NextResponse.json(
-          { error: "Download is currently unavailable." },
-          { status: 404 }
-        );
-      }
-      webStream = upstream.body;
-      const lengthHeader = upstream.headers.get("content-length");
-      if (lengthHeader) {
-        const parsed = Number.parseInt(lengthHeader, 10);
-        if (Number.isFinite(parsed) && parsed > 0) contentLength = parsed;
-      }
-    }
-
+    const object = await getObjectFromCloudflareR2(objectKey);
     const headers = new Headers({
       "Content-Type": "application/octet-stream",
       "Content-Disposition": contentDispositionAttachment(fileName),
-      "Cache-Control": "no-store",
+      ...PRIVATE_NO_STORE,
       "X-Content-Type-Options": "nosniff",
     });
-    if (contentLength) {
-      headers.set("Content-Length", String(contentLength));
+    if (object.contentLength) {
+      headers.set("Content-Length", String(object.contentLength));
     }
     applyQuotaHeaders(headers, quotaSnapshot);
 
-    return new NextResponse(webStream, { status: 200, headers });
+    return new NextResponse(object.webStream, { status: 200, headers });
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
     if (message === "This account is suspended.") {
-      return NextResponse.json({ error: message }, { status: 403 });
+      return NextResponse.json({ error: message }, { status: 403, headers: PRIVATE_NO_STORE });
+    }
+    if (reservedQuota && userId) {
+      try {
+        const { contentId } = await params;
+        const guarded = await getGuardedPublishedContent(contentId);
+        if (guarded?.creatorClerkUserId) {
+          await releaseDownload({
+            subscriberClerkUserId: userId,
+            creatorClerkUserId: guarded.creatorClerkUserId,
+          });
+        }
+      } catch {
+        // already failing
+      }
     }
     console.error("[content:download]", error);
     return NextResponse.json(
       { error: "Unable to record download." },
-      { status: 500 }
+      { status: 500, headers: PRIVATE_NO_STORE }
     );
   }
 }

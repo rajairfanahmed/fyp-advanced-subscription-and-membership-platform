@@ -109,16 +109,28 @@ export default function AdminOverviewPage() {
       trend: "All accounts",
     },
     {
-      label: "Monthly Revenue",
-      value: metrics ? formatCurrencyCents(metrics.monthlyRevenueCents) : "—",
+      label: "Gross MRR",
+      value: metrics ? formatCurrencyCents(metrics.grossMrrCents) : "—",
       icon: <DollarSign className="w-5 h-5 text-emerald-600" />,
-      trend: "Active paid MRR",
+      trend: "Active list-price",
+    },
+    {
+      label: "Collected (30d)",
+      value: metrics ? formatCurrencyCents(metrics.collected30dCents) : "—",
+      icon: <DollarSign className="w-5 h-5 text-sky-600" />,
+      trend: "Succeeded charges",
+    },
+    {
+      label: "Platform take (30d)",
+      value: metrics ? formatCurrencyCents(metrics.platformTakeCents) : "—",
+      icon: <DollarSign className="w-5 h-5 text-violet-600" />,
+      trend: `${metrics ? (metrics.platformFeeBps / 100).toFixed(0) : "—"}% of collected`,
     },
     {
       label: "Failed Payments",
       value: metrics ? formatNumber(metrics.failedPayments) : "—",
       icon: <AlertCircle className="w-5 h-5 text-red-600" />,
-      trend: "All time",
+      trend: "Last 30 days",
     },
     {
       label: "Cancelled (30d)",

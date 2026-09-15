@@ -98,6 +98,7 @@ const CAMEL_TO_SNAKE: Record<string, string> = {
   renewalReminderLeadDays: "renewal_reminder_lead_days",
   failureAlertCadence: "failure_alert_cadence",
   maintenanceMode: "maintenance_mode",
+  platformFeeBps: "platform_fee_bps",
   createdAt: "created_at",
   updatedAt: "updated_at",
 };
@@ -120,6 +121,26 @@ function scalar(value: unknown): unknown {
 
 function idParam(value: unknown) {
   return String(scalar(value) ?? "").trim();
+}
+
+function isPgUniqueViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let i = 0; i < 4 && current; i += 1) {
+    if (
+      typeof current === "object" &&
+      current &&
+      "code" in current &&
+      (current as { code?: string }).code === "23505"
+    ) {
+      return true;
+    }
+    current =
+      typeof current === "object" && current && "cause" in current
+        ? (current as { cause?: unknown }).cause
+        : null;
+  }
+  const message = error instanceof Error ? error.message : "";
+  return /duplicate key|unique constraint/i.test(message);
 }
 
 function wrapId(uuid: string) {
@@ -199,6 +220,7 @@ const NUMERIC_SNAKE = new Set([
   "new_subscribers_today",
   "churned_subscribers_today",
   "renewal_reminder_lead_days",
+  "platform_fee_bps",
 ]);
 
 function asNumber(value: unknown) {
@@ -215,6 +237,18 @@ function compileWhere(filter: Filter | undefined, params: unknown[]): string {
   const parts: string[] = [];
   for (const [key, raw] of Object.entries(filter)) {
     if (raw === undefined) continue;
+    if (key === "$or" && Array.isArray(raw)) {
+      if (raw.length === 0) {
+        parts.push("FALSE");
+        continue;
+      }
+      const grouped = raw.map((clause) => {
+        const inner = compileWhere(clause as Filter, params);
+        return `(${inner})`;
+      });
+      parts.push(`(${grouped.join(" OR ")})`);
+      continue;
+    }
     if (key === "_id" || key === "id") {
       params.push(idParam(raw));
       const i = params.length;
@@ -379,6 +413,7 @@ async function hydratePlan(doc: Record<string, unknown>) {
 class PgQuery {
   private _sort: SortSpec | undefined;
   private _limit: number | undefined;
+  private _skip: number | undefined;
 
   constructor(
     private spec: ModelSpec,
@@ -396,7 +431,12 @@ class PgQuery {
     return this;
   }
 
-  select(_fields?: unknown) {
+  skip(n: number) {
+    this._skip = n;
+    return this;
+  }
+
+  select() {
     return this;
   }
 
@@ -416,7 +456,9 @@ class PgQuery {
     const where = compileWhere(this.filter, params);
     const order = compileSort(this._sort);
     const limitSql = this._limit ? `LIMIT ${Number(this._limit)}` : "";
-    const sql = `SELECT * FROM ${this.spec.table} WHERE ${where} ${order} ${limitSql}`;
+    const offsetSql =
+      this._skip && this._skip > 0 ? `OFFSET ${Number(this._skip)}` : "";
+    const sql = `SELECT * FROM ${this.spec.table} WHERE ${where} ${order} ${limitSql} ${offsetSql}`;
     const res = await pgQuery(sql, params);
     const docs = res.rows.map((r) => rowToDoc(r));
     if (this.hydrate) {
@@ -476,11 +518,66 @@ const SKIP_CREATE = new Set([
   "features",
 ]);
 
+async function persistSubscriberNotificationPreferences(
+  profileId: string,
+  prefs: Record<string, boolean>
+) {
+  await pgQuery(
+    `INSERT INTO subscriber_notification_preferences (
+      subscriber_profile_id, product_updates, content_digests, download_alerts,
+      renewal_reminders, payment_alerts, account_notices, creator_announcements
+    ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+    ON CONFLICT (subscriber_profile_id) DO UPDATE SET
+      product_updates = EXCLUDED.product_updates,
+      content_digests = EXCLUDED.content_digests,
+      download_alerts = EXCLUDED.download_alerts,
+      renewal_reminders = EXCLUDED.renewal_reminders,
+      payment_alerts = EXCLUDED.payment_alerts,
+      account_notices = EXCLUDED.account_notices,
+      creator_announcements = EXCLUDED.creator_announcements`,
+    [
+      profileId,
+      prefs.productUpdates ?? true,
+      prefs.contentDigests ?? true,
+      prefs.downloadAlerts ?? true,
+      prefs.renewalReminders ?? true,
+      prefs.paymentAlerts ?? true,
+      prefs.accountNotices ?? true,
+      prefs.creatorAnnouncements ?? false,
+    ]
+  );
+}
+
+async function persistCreatorWorkspaceAlerts(
+  profileId: string,
+  alerts: Record<string, boolean>
+) {
+  await pgQuery(
+    `INSERT INTO creator_workspace_alerts (
+      creator_profile_id, new_subscriber, renewal_summary, failed_payment, engagement_report, weekly_revenue
+    ) VALUES ($1,$2,$3,$4,$5,$6)
+    ON CONFLICT (creator_profile_id) DO UPDATE SET
+      new_subscriber = EXCLUDED.new_subscriber,
+      renewal_summary = EXCLUDED.renewal_summary,
+      failed_payment = EXCLUDED.failed_payment,
+      engagement_report = EXCLUDED.engagement_report,
+      weekly_revenue = EXCLUDED.weekly_revenue`,
+    [
+      profileId,
+      alerts.newSubscriber ?? true,
+      alerts.renewalSummary ?? true,
+      alerts.failedPayment ?? false,
+      alerts.engagementReport ?? true,
+      alerts.weeklyRevenue ?? true,
+    ]
+  );
+}
+
 export function createPgModel(
   spec: ModelSpec,
   hydrate?: (doc: Record<string, unknown>) => Promise<void>
 ) {
-  function findOne(filter: Filter, _projection?: unknown) {
+  function findOne(filter: Filter) {
     const query = new PgQuery(spec, filter, hydrate).limit(1);
     const execDoc = async () => {
       const rows = await query.exec();
@@ -534,6 +631,13 @@ export function createPgModel(
         params
       );
       return Number(res.rows[0]?.count ?? 0);
+    },
+    async insertMany(docs: Record<string, unknown>[] = []) {
+      const created: unknown[] = [];
+      for (const doc of docs) {
+        created.push(await api.create(doc));
+      }
+      return created;
     },
     async create(data: Record<string, unknown>) {
       const cols: string[] = [];
@@ -637,7 +741,7 @@ export function createPgModel(
       const sets: string[] = [];
       const used = new Set<string>();
       for (const [k, v] of Object.entries(set)) {
-        if (v === undefined || k.startsWith("$")) continue;
+        if (v === undefined || k.startsWith("$") || SKIP_SAVE.has(k)) continue;
         const sn = snake(k);
         if (sn === "updated_at" || sn === "created_at" || used.has(sn)) continue;
         used.add(sn);
@@ -674,12 +778,42 @@ export function createPgModel(
       if (!existing && options?.upsert) {
         const set = (update.$set as Record<string, unknown>) || {};
         const setOnInsert = (update.$setOnInsert as Record<string, unknown>) || {};
-        const merged = { ...filter, ...setOnInsert, ...set };
-        delete merged.status;
-        return api.create({ ...setOnInsert, ...set, ...Object.fromEntries(Object.entries(filter).filter(([k]) => !k.startsWith("$"))) });
+        const createPayload = {
+          ...setOnInsert,
+          ...set,
+          ...Object.fromEntries(Object.entries(filter).filter(([k]) => !k.startsWith("$"))),
+        };
+        delete (createPayload as { status?: unknown }).status;
+        try {
+          return await api.create(createPayload);
+        } catch (error) {
+          if (!isPgUniqueViolation(error)) throw error;
+          const raced = await findOne(filter);
+          if (!raced) throw error;
+          await api.updateOne(filter, update);
+          return findOne(filter);
+        }
       }
       if (!existing) return null;
       await api.updateOne(filter, update);
+      const nestedSet = (update.$set as Record<string, unknown>) || {};
+      if (spec.table === "subscriber_profiles" && nestedSet.notificationPreferences) {
+        try {
+          await persistSubscriberNotificationPreferences(
+            String(existing._id),
+            nestedSet.notificationPreferences as Record<string, boolean>
+          );
+        } catch (error) {
+          console.error("[pg] persist subscriber notification preferences", error);
+          throw error;
+        }
+      }
+      if (spec.table === "creator_profiles" && nestedSet.creatorWorkspaceAlerts) {
+        await persistCreatorWorkspaceAlerts(
+          String(existing._id),
+          nestedSet.creatorWorkspaceAlerts as Record<string, boolean>
+        );
+      }
       return findOne(filter);
     },
     async findOneAndDelete(filter: Filter) {

@@ -3,13 +3,16 @@ import type Stripe from "stripe";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   CreatorProfileModel,
+  NotificationModel,
   PaymentModel,
   PlanModel,
   SubscriptionModel,
   type SubscriptionDocument,
 } from "@/lib/mongodb/models";
 import { createNotification, notifyIfAllowed } from "@/lib/mongodb/notifications";
+import { sendUpcomingInvoiceReminder } from "@/lib/mongodb/renewal-reminders";
 import { recalcCreatorSubscriberCount } from "@/lib/mongodb/creator-counts";
+import { daysRemainingLabel, planTierLabel } from "@/lib/membership/labels";
 import type { PlanAccessLevel } from "@/types/plan";
 import type { SubscriptionStatus } from "@/types/subscription";
 
@@ -25,11 +28,11 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
     case "trialing":
       return "trialing";
     case "past_due":
-    case "unpaid":
       return "past_due";
     case "canceled":
     case "paused":
       return "canceled";
+    case "unpaid":
     case "incomplete":
     case "incomplete_expired":
     default:
@@ -40,6 +43,64 @@ function mapStripeStatus(status: Stripe.Subscription.Status): SubscriptionStatus
 function unixToDate(value: number | null | undefined): Date | null {
   if (!value || !Number.isFinite(value)) return null;
   return new Date(value * 1000);
+}
+
+function stripePeriodEnd(stripeSub: Stripe.Subscription): Date | null {
+  const item = stripeSub.items?.data?.[0] as
+    | { current_period_end?: number }
+    | undefined;
+  const unix =
+    item?.current_period_end ??
+    (stripeSub as unknown as { current_period_end?: number }).current_period_end ??
+    stripeSub.cancel_at ??
+    null;
+  return unixToDate(unix);
+}
+
+async function notifyPaidMembershipActivated(subDoc: SubscriptionDocument): Promise<void> {
+  const tier = planTierLabel(subDoc.accessLevel);
+  const title = `${tier} membership is active`;
+  try {
+    const recent = await NotificationModel.findOne({
+      recipientClerkUserId: subDoc.subscriberClerkUserId,
+      category: "renewal",
+      title,
+      createdAt: { $gte: new Date(Date.now() - 120_000) },
+    });
+    if (recent) return;
+
+    const creator = await CreatorProfileModel.findOne({
+      clerkUserId: subDoc.creatorClerkUserId,
+    });
+    const remaining = daysRemainingLabel(subDoc.currentPeriodEnd);
+    await notifyIfAllowed({
+      recipientClerkUserId: subDoc.subscriberClerkUserId,
+      category: "renewal",
+      title,
+      message: creator
+        ? `You now have ${tier} access to ${creator.creatorName}.${remaining ? ` ${remaining}.` : ""}`
+        : `Your ${tier} membership is active.`,
+      link: creator ? `/creators/${creator.creatorSlug}` : "/subscription",
+      metadata: {
+        event: "subscription.created",
+        accessLevel: subDoc.accessLevel,
+      },
+    });
+    await notifyIfAllowed({
+      recipientClerkUserId: subDoc.creatorClerkUserId,
+      category: "creator",
+      title: "New paid subscriber",
+      message: `Someone just subscribed to your ${tier} plan.`,
+      link: "/creator/subscribers",
+      creatorWorkspaceAlertKey: "newSubscriber",
+      metadata: {
+        event: "subscription.created",
+        accessLevel: subDoc.accessLevel,
+      },
+    });
+  } catch (error) {
+    console.warn("[stripe:webhook:notify-checkout]", error);
+  }
 }
 
 function asString(value: unknown): string {
@@ -104,7 +165,8 @@ async function resolvePlanFromStripe(
  */
 export async function upsertSubscriptionFromStripe(
   stripeSub: Stripe.Subscription,
-  metadataOverride?: Partial<SubscriptionMetadata>
+  metadataOverride?: Partial<SubscriptionMetadata>,
+  eventCreatedUnix?: number
 ): Promise<SubscriptionDocument | null> {
   const meta: Partial<SubscriptionMetadata> = {
     ...readMetadata(stripeSub.metadata),
@@ -151,10 +213,28 @@ export async function upsertSubscriptionFromStripe(
     "usd";
 
   const status = mapStripeStatus(stripeSub.status);
-  const periodEnd = unixToDate(
-    (stripeSub as unknown as { current_period_end?: number }).current_period_end ??
-      null
-  );
+  const periodEnd = stripePeriodEnd(stripeSub);
+
+  const existing = await SubscriptionModel.findOne({
+    subscriberClerkUserId: meta.subscriberClerkUserId,
+    creatorClerkUserId: meta.creatorClerkUserId,
+  });
+  if (
+    existing &&
+    typeof eventCreatedUnix === "number" &&
+    existing.updatedAt &&
+    existing.updatedAt.getTime() > eventCreatedUnix * 1000 + 5000
+  ) {
+    return existing;
+  }
+  if (
+    existing &&
+    (status === "canceled" || status === "expired") &&
+    existing.accessLevel === "free" &&
+    (existing.status === "active" || existing.status === "trialing")
+  ) {
+    return existing;
+  }
 
   const creator = await CreatorProfileModel.findOne({
     clerkUserId: meta.creatorClerkUserId,
@@ -300,38 +380,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
       const subDoc = await upsertSubscriptionFromStripe(stripeSub, meta);
 
       if (subDoc) {
-        try {
-          const creator = await CreatorProfileModel.findOne({
-            clerkUserId: subDoc.creatorClerkUserId,
-          });
-          await notifyIfAllowed({
-            recipientClerkUserId: subDoc.subscriberClerkUserId,
-            category: "creator",
-            title: `Subscription started`,
-            message: creator
-              ? `You now have ${subDoc.accessLevel} access to ${creator.creatorName}.`
-              : `Your subscription is active.`,
-            link: creator ? `/creators/${creator.creatorSlug}` : "/subscription",
-            metadata: {
-              event: "subscription.created",
-              accessLevel: subDoc.accessLevel,
-            },
-          });
-          await notifyIfAllowed({
-            recipientClerkUserId: subDoc.creatorClerkUserId,
-            category: "creator",
-            title: "New paid subscriber",
-            message: `Someone just subscribed to your ${subDoc.accessLevel} tier.`,
-            link: "/creator/subscribers",
-            creatorWorkspaceAlertKey: "newSubscriber",
-            metadata: {
-              event: "subscription.created",
-              accessLevel: subDoc.accessLevel,
-            },
-          });
-        } catch (error) {
-          console.warn("[stripe:webhook:notify-checkout]", error);
-        }
+        await notifyPaidMembershipActivated(subDoc);
       }
       return;
     }
@@ -339,13 +388,13 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
     case "customer.subscription.created":
     case "customer.subscription.updated": {
       const stripeSub = event.data.object as Stripe.Subscription;
-      await upsertSubscriptionFromStripe(stripeSub);
+      await upsertSubscriptionFromStripe(stripeSub, undefined, event.created);
       return;
     }
 
     case "customer.subscription.deleted": {
       const stripeSub = event.data.object as Stripe.Subscription;
-      const doc = await upsertSubscriptionFromStripe(stripeSub);
+      const doc = await upsertSubscriptionFromStripe(stripeSub, undefined, event.created);
       if (doc) {
         try {
           await notifyIfAllowed({
@@ -368,6 +417,18 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
         } catch (error) {
           console.warn("[stripe:webhook:notify-cancel]", error);
         }
+      }
+      return;
+    }
+
+    case "invoice.upcoming": {
+      const invoice = event.data.object as Stripe.Invoice;
+      const subId = subscriptionIdValue(
+        (invoice as unknown as { subscription?: string | Stripe.Subscription | null })
+          .subscription ?? null
+      );
+      if (subId) {
+        await sendUpcomingInvoiceReminder(subId);
       }
       return;
     }
@@ -445,21 +506,11 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
           .subscription ?? null
       );
       if (subId) {
-        const subDoc = await SubscriptionModel.findOneAndUpdate(
-          { stripeSubscriptionId: subId },
-          { $set: { status: "past_due" as SubscriptionStatus } },
-          { returnDocument: "after" }
-        );
+        const subDoc = await SubscriptionModel.findOne({
+          stripeSubscriptionId: subId,
+        });
         if (subDoc) {
           try {
-            await recalcCreatorSubscriberCount(subDoc.creatorClerkUserId);
-          } catch (error) {
-            console.warn("[stripe:webhook:recalc-count-failed-payment]", error);
-          }
-          try {
-            // Payment failures are too important to silence — call
-            // createNotification directly so the subscriber sees the
-            // failure even if they have payment alerts muted.
             await createNotification({
               recipientClerkUserId: subDoc.subscriberClerkUserId,
               category: "payment",
@@ -467,13 +518,13 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
               message:
                 "Your latest subscription payment did not go through. Update your payment method to keep access.",
               link: "/billing",
-              metadata: { event: "payment.failed" },
+              metadata: { event: "payment.failed", stripeInvoiceId: invoice.id },
             });
             await notifyIfAllowed({
               recipientClerkUserId: subDoc.creatorClerkUserId,
               category: "creator",
               title: "Subscriber payment failed",
-              message: `A ${subDoc.accessLevel} subscriber failed payment and is now past_due.`,
+              message: `A ${subDoc.accessLevel} subscriber failed a payment.`,
               link: "/creator/revenue",
               creatorWorkspaceAlertKey: "failedPayment",
               metadata: { event: "payment.failed" },
@@ -533,6 +584,8 @@ export async function confirmCheckoutSessionForUser(input: {
   if (!doc) {
     return { ready: false, accessLevel: null, status: null };
   }
+
+  await notifyPaidMembershipActivated(doc);
 
   return {
     ready: true,

@@ -76,7 +76,7 @@ export default function AnalyticsPage() {
       icon: <Download className="w-5 h-5 text-sky-600" />,
     },
     {
-      label: "Premium Conversion",
+      label: "Paid conversion",
       value: metrics
         ? `${metrics.premiumConversionPercent.toFixed(1)}%`
         : "—",
@@ -88,12 +88,12 @@ export default function AnalyticsPage() {
 
   return (
     <CreatorShell>
-      <div className="space-y-12">
+      <div className="space-y-12 min-w-0">
 
         <DashboardHeader
           eyebrow="Data & Insights"
           title="Analytics"
-          subtitle="Understand content performance, subscriber engagement, plan conversion, and retention signals."
+          subtitle="Content performance from live totals. Subscriber charts appear after daily snapshots exist."
           action={
             <Button
               variant="secondary"
@@ -127,7 +127,7 @@ export default function AnalyticsPage() {
                 <h3 className="text-slate-400 font-black text-[10px] uppercase tracking-widest mb-2">
                   {metric.label}
                 </h3>
-                <p className="text-3xl font-black font-display text-slate-900">
+                <p className="text-2xl sm:text-3xl font-black font-display text-slate-900">
                   {isLoading ? "…" : metric.value}
                 </p>
               </div>
@@ -135,15 +135,15 @@ export default function AnalyticsPage() {
           </div>
         </MotionItem>
 
-        <div className="grid lg:grid-cols-3 gap-10">
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
 
           {/* ── Main Content Area (Left) ── */}
-          <div className="lg:col-span-2 space-y-10">
+          <div className="lg:col-span-2 space-y-10 min-w-0">
 
             {/* Top Performing Content */}
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
-                <div className="flex items-center justify-between mb-8">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6 sm:mb-8">
                   <h2 className="text-xl font-black font-display text-slate-900">
                     Top Performing Content
                   </h2>
@@ -158,7 +158,7 @@ export default function AnalyticsPage() {
                 {isLoading ? (
                   <p className="text-sm font-bold text-slate-500">Loading content…</p>
                 ) : data && data.topContent.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center">
+                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 sm:p-10 text-center">
                     <p className="font-black text-slate-700 mb-2">No content to rank yet</p>
                     <p className="text-sm font-medium text-slate-500 mb-4">
                       Publish content to start collecting view and download metrics.
@@ -186,21 +186,6 @@ export default function AnalyticsPage() {
                           <span className="text-sm font-black text-slate-900">
                             {content.primaryStat}
                           </span>
-                          <span
-                            className={
-                              content.trend === "up"
-                                ? "text-[10px] font-black text-emerald-600 bg-emerald-50 px-3 py-1 rounded-lg uppercase tracking-wider"
-                                : content.trend === "down"
-                                  ? "text-[10px] font-black text-red-600 bg-red-50 px-3 py-1 rounded-lg uppercase tracking-wider"
-                                  : "text-[10px] font-black text-slate-500 bg-slate-50 px-3 py-1 rounded-lg uppercase tracking-wider"
-                            }
-                          >
-                            {content.trend === "up"
-                              ? "Trending up"
-                              : content.trend === "down"
-                                ? "Cooling off"
-                                : "Steady"}
-                          </span>
                         </div>
                       </div>
                     ))}
@@ -211,8 +196,8 @@ export default function AnalyticsPage() {
 
             {/* Engagement Time-Series */}
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
-                <div className="flex items-center justify-between mb-6">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
                   <h2 className="text-xl font-black font-display text-slate-900">
                     Subscribers over the last 30 days
                   </h2>
@@ -233,7 +218,7 @@ export default function AnalyticsPage() {
                   </p>
                 ) : (
                   <div>
-                    <div className="flex items-end gap-1.5 h-32">
+                    <div className="flex items-end gap-1 sm:gap-1.5 h-32 min-w-0">
                       {(() => {
                         const max = Math.max(
                           1,
@@ -245,7 +230,7 @@ export default function AnalyticsPage() {
                           return (
                             <div
                               key={point.date}
-                              className="flex-1 flex flex-col items-center gap-1.5 group"
+                              className="flex-1 min-w-0 flex flex-col items-center gap-1.5 group"
                               title={`${point.label}: ${point.totalSubscribers} subscribers`}
                             >
                               <div className="w-full bg-slate-100 rounded-md relative h-full flex items-end overflow-hidden">
@@ -275,7 +260,7 @@ export default function AnalyticsPage() {
 
             {/* Format Split */}
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm relative overflow-hidden">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm relative overflow-hidden">
                 <h3 className="text-xl font-black font-display text-slate-900 mb-8">
                   Format Split
                 </h3>
@@ -334,7 +319,7 @@ export default function AnalyticsPage() {
 
             {/* Subscriber Insights */}
             <MotionReveal>
-              <div className="bg-sky-50/50 rounded-[2.5rem] border border-sky-100 p-10 shadow-sm">
+              <div className="bg-sky-50/50 rounded-[2.5rem] border border-sky-100 p-5 sm:p-8 lg:p-10 shadow-sm">
                 <div className="flex items-center gap-4 mb-6">
                   <div className="w-12 h-12 rounded-2xl bg-sky-100 flex items-center justify-center shrink-0 border border-sky-200 shadow-sm">
                     <Target className="w-6 h-6 text-sky-600" />

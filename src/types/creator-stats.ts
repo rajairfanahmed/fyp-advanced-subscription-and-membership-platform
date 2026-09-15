@@ -6,6 +6,9 @@ export type CreatorOverviewMetrics = {
   monthlyRevenueCents: number;
   activeSubscribers: number;
   paidSubscribers: number;
+  freeSubscribers: number;
+  basicSubscribers: number;
+  premiumSubscribers: number;
   contentViews: number;
   cancelledSubscribers30d: number;
   pendingCancellations: number;
@@ -50,6 +53,15 @@ export type CreatorOverviewResponse = {
   publishReadiness: CreatorPublishReadiness;
 };
 
+export type CreatorMembershipLifecycle =
+  | "following"
+  | "active"
+  | "trialing"
+  | "cancel_scheduled"
+  | "past_due"
+  | "canceled"
+  | "expired";
+
 export type CreatorSubscriberRow = {
   subscriptionId: string;
   subscriberClerkUserId: string;
@@ -58,17 +70,32 @@ export type CreatorSubscriberRow = {
   avatarUrl: string;
   plan: "Free" | "Basic" | "Premium";
   accessLevel: PlanAccessLevel;
+  priceMonthly: number;
   status: SubscriptionStatus;
+  lifecycle: CreatorMembershipLifecycle;
   renewalLabel: string;
-  engagement: "High" | "Medium" | "Low";
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  daysRemaining: number | null;
+  daysRemainingLabel: string;
+  quotaUsed: number;
+  quotaLimit: number | null;
+  quotaLabel: string;
+  canScheduleCancel: boolean;
+  canKeepMembership: boolean;
+  canRemoveFollower: boolean;
   startedAt: string;
 };
 
 export type CreatorSubscribersResponse = {
   metrics: {
     totalSubscribers: number;
+    freeSubscribers: number;
+    basicSubscribers: number;
+    premiumSubscribers: number;
     paidSubscribers: number;
-    highEngagementPercent: number;
+    scheduledCancellations: number;
+    pastDue: number;
     churnRisk: number;
   };
   subscribers: CreatorSubscriberRow[];
@@ -79,18 +106,29 @@ export type CreatorRevenuePoint = {
   valueCents: number;
 };
 
+export type CreatorRevenueTierBreakdown = {
+  basicMembers: number;
+  basicMrrCents: number;
+  premiumMembers: number;
+  premiumMrrCents: number;
+};
+
 export type CreatorRevenueResponse = {
   metrics: {
     mrrCents: number;
     arpuCents: number;
     failedPayments: number;
+    failedPayments30d: number;
+    failedPaymentsAllTime: number;
     churnRatePercent: number;
   };
+  mrrByTier: CreatorRevenueTierBreakdown;
   trend: CreatorRevenuePoint[];
   recentPayments: PaymentResponse[];
   forecast: {
     upcomingRenewalsCount: number;
     forecastedRevenueCents: number;
+    windowDays: number;
   };
 };
 
@@ -98,7 +136,6 @@ export type CreatorAnalyticsTopContentItem = {
   id: string;
   title: string;
   primaryStat: string;
-  trend: "up" | "down" | "steady";
 };
 
 export type CreatorAnalyticsDailyPoint = {

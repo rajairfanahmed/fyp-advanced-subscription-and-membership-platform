@@ -15,6 +15,8 @@ import {
   UserMinus,
   PieChart,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import type {
   AdminSubscriberRow,
@@ -50,8 +52,14 @@ export default function AdminSubscribersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
   const [planFilter, setPlanFilter] =
     useState<(typeof PLAN_FILTERS)[number]["id"]>("all");
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +67,13 @@ export default function AdminSubscribersPage() {
       setIsLoading(true);
       setErrorMessage("");
       try {
-        const res = await fetch("/api/admin/subscribers", { cache: "no-store" });
+        const params = new URLSearchParams({
+          page: String(page),
+          q: debouncedQuery,
+        });
+        const res = await fetch(`/api/admin/subscribers?${params.toString()}`, {
+          cache: "no-store",
+        });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
           throw new Error(body.error || "Failed to load subscribers.");
@@ -79,7 +93,7 @@ export default function AdminSubscribersPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, debouncedQuery]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -281,7 +295,7 @@ export default function AdminSubscribersPage() {
                                 </span>
                               </td>
                               <td className="p-8 text-right">
-                                <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex items-center justify-end gap-3 opacity-100 transition-opacity">
                                   <Link href={`/admin/users/${encodeURIComponent(row.subscriberClerkUserId)}`}>
                                     <Button
                                       variant="outline"
@@ -350,6 +364,7 @@ export default function AdminSubscribersPage() {
                         </div>
                       ))}
                     </div>
+                    <AdminPager page={data?.page} onPage={setPage} />
                   </>
                 )}
               </div>

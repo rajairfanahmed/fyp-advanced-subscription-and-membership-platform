@@ -181,6 +181,10 @@ export async function POST(req: NextRequest) {
       claimed: sizeBytes,
       actual: bodyBuffer.length,
     });
+    return badRequest(
+      "Upload was truncated. Check your connection and try again.",
+      { claimed: sizeBytes, actual: bodyBuffer.length }
+    );
   }
 
   try {

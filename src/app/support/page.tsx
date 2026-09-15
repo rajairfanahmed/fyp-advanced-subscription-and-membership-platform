@@ -147,7 +147,7 @@ export default function SupportPage() {
             </MotionItem>
 
             <MotionItem>
-              <h1 className="text-5xl md:text-6xl lg:text-7xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6">
+              <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6">
                 Get Help With Your <span className="text-gradient-primary">Membership Platform</span>
               </h1>
             </MotionItem>

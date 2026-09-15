@@ -3,6 +3,7 @@ import {
   PlatformSettingsModel,
   type PlatformSettingsDocument,
 } from "@/lib/mongodb/models";
+import { pgQuery } from "@/lib/db/pool";
 import type {
   AdminPlatformSettingsInput,
   AdminPlatformSettingsResponse,
@@ -31,7 +32,7 @@ const ALLOWED_FAILURE_CADENCE: AdminPlatformSettingsResponse["failureAlertCadenc
 function serialize(doc: PlatformSettingsDocument): AdminPlatformSettingsResponse {
   return {
     platformDisplayName: doc.platformDisplayName ?? "Advanced Subscription & Membership Platform",
-    supportEmail: doc.supportEmail ?? "support@example.com",
+    supportEmail: doc.supportEmail ?? "support@asmp.app",
     defaultSubscriberTier:
       (doc.defaultSubscriberTier as
         | AdminPlatformSettingsResponse["defaultSubscriberTier"]
@@ -54,6 +55,10 @@ function serialize(doc: PlatformSettingsDocument): AdminPlatformSettingsResponse
         | AdminPlatformSettingsResponse["failureAlertCadence"]
         | undefined) ?? "immediate",
     maintenanceMode: doc.maintenanceMode ?? false,
+    platformFeeBps:
+      typeof doc.platformFeeBps === "number" && Number.isFinite(doc.platformFeeBps)
+        ? Math.max(0, Math.min(10000, Math.round(doc.platformFeeBps)))
+        : 10000,
   };
 }
 
@@ -63,6 +68,14 @@ function serialize(doc: PlatformSettingsDocument): AdminPlatformSettingsResponse
  */
 export async function loadPlatformSettings(): Promise<AdminPlatformSettingsResponse> {
   await connectToMongoDB();
+  try {
+    await pgQuery(
+      `ALTER TABLE platform_settings
+       ADD COLUMN IF NOT EXISTS platform_fee_bps INTEGER NOT NULL DEFAULT 10000`
+    );
+  } catch (error) {
+    console.warn("[admin-settings] platform_fee_bps", error);
+  }
   const existing = await PlatformSettingsModel.findOne({
     singletonKey: SINGLETON_KEY,
   });
@@ -138,6 +151,9 @@ export async function updatePlatformSettings(
   }
   if (typeof input.maintenanceMode === "boolean") {
     update.maintenanceMode = input.maintenanceMode;
+  }
+  if (typeof input.platformFeeBps === "number" && Number.isFinite(input.platformFeeBps)) {
+    update.platformFeeBps = Math.max(0, Math.min(10000, Math.round(input.platformFeeBps)));
   }
 
   const doc = await PlatformSettingsModel.findOneAndUpdate(

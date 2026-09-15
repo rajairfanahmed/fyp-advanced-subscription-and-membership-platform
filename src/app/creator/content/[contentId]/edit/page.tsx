@@ -42,7 +42,7 @@ export default function EditContentPage() {
   if (isLoading) {
     return (
       <CreatorShell>
-        <div className="bg-white rounded-[2rem] border border-slate-200 p-8 text-sm font-bold text-slate-500">
+        <div className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8 text-sm font-bold text-slate-500">
           Loading content...
         </div>
       </CreatorShell>
@@ -52,7 +52,7 @@ export default function EditContentPage() {
   if (error || !content) {
     return (
       <CreatorShell>
-        <div className="bg-white rounded-[2rem] border border-slate-200 p-8">
+        <div className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8">
           <Link href="/creator/content" className="inline-flex items-center gap-2 text-sm font-bold text-slate-400 hover:text-teal-600 transition-colors mb-4">
             <ArrowLeft className="w-4 h-4" /> Back to Content
           </Link>

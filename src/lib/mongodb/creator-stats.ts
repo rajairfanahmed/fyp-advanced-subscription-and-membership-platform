@@ -15,10 +15,13 @@ import {
 } from "@/lib/mongodb/models";
 import { serializePayment } from "@/lib/mongodb/payments";
 import { listRecentSnapshotsForCreator } from "@/lib/mongodb/analytics-rollup";
+import { daysRemaining, daysRemainingLabel } from "@/lib/membership/labels";
+import { snapshotFromSubscription } from "@/lib/mongodb/download-quota";
 import type {
   CreatorActivityItem,
   CreatorAnalyticsDailyPoint,
   CreatorAnalyticsResponse,
+  CreatorMembershipLifecycle,
   CreatorOverviewResponse,
   CreatorPublishReadiness,
   CreatorRevenuePoint,
@@ -62,16 +65,34 @@ function shortName(input?: string) {
   return input.trim() || "Subscriber";
 }
 
-function classifyEngagement(accessLevel: string): "High" | "Medium" | "Low" {
-  if (accessLevel === "premium") return "High";
-  if (accessLevel === "basic") return "Medium";
-  return "Low";
-}
-
 function planLabel(accessLevel: string): "Free" | "Basic" | "Premium" {
   if (accessLevel === "premium") return "Premium";
   if (accessLevel === "basic") return "Basic";
   return "Free";
+}
+
+function membershipLifecycle(opts: {
+  status: string;
+  accessLevel: string;
+  cancelAtPeriodEnd: boolean | null | undefined;
+}): CreatorMembershipLifecycle {
+  if (opts.status === "expired") return "expired";
+  if (opts.status === "canceled") return "canceled";
+  if (opts.status === "past_due") return "past_due";
+  if (opts.status === "trialing") {
+    return opts.cancelAtPeriodEnd ? "cancel_scheduled" : "trialing";
+  }
+  if (opts.cancelAtPeriodEnd && (opts.status === "active" || opts.status === "trialing")) {
+    return "cancel_scheduled";
+  }
+  if (opts.status === "active" && opts.accessLevel === "free") return "following";
+  if (opts.status === "active") return "active";
+  return "expired";
+}
+
+function quotaLabel(used: number, limit: number | null): string {
+  if (limit === null) return "Unlimited";
+  return `${used} / ${limit}`;
 }
 
 function isoOrNull(value: Date | null | undefined) {
@@ -134,7 +155,7 @@ export async function getCreatorOverview(): Promise<CreatorOverviewResponse> {
 
   const [
     subscriptions,
-    contentDocs,
+    allContentDocs,
     cancelled30dCount,
     recentSubsRaw,
     recentPaymentsRaw,
@@ -145,9 +166,7 @@ export async function getCreatorOverview(): Promise<CreatorOverviewResponse> {
     ContentModel.find(
       { creatorClerkUserId, status: { $ne: "archived" } },
       { title: 1, contentType: 1, viewsCount: 1, downloadsCount: 1, publishedAt: 1, createdAt: 1, status: 1 }
-    )
-      .sort({ viewsCount: -1, createdAt: -1 })
-      .limit(5),
+    ),
     SubscriptionModel.countDocuments({
       creatorClerkUserId,
       status: "canceled",
@@ -167,13 +186,16 @@ export async function getCreatorOverview(): Promise<CreatorOverviewResponse> {
     ACTIVE_STATUSES.includes(s.status as (typeof ACTIVE_STATUSES)[number])
   );
   const paidSubs = activeSubs.filter((s) => s.accessLevel !== "free");
+  const freeSubscribers = activeSubs.filter((s) => s.accessLevel === "free").length;
+  const basicSubscribers = activeSubs.filter((s) => s.accessLevel === "basic").length;
+  const premiumSubscribers = activeSubs.filter((s) => s.accessLevel === "premium").length;
   const pendingCancellations = activeSubs.filter((s) => s.cancelAtPeriodEnd).length;
 
   const monthlyRevenueCents = paidSubs.reduce(
     (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
     0
   );
-  const contentViews = contentDocs.reduce(
+  const contentViews = allContentDocs.reduce(
     (acc, c) => acc + asNumber(c.viewsCount),
     0
   );
@@ -182,14 +204,17 @@ export async function getCreatorOverview(): Promise<CreatorOverviewResponse> {
       ? Math.round((paidSubs.length / activeSubs.length) * 1000) / 10
       : 0;
 
-  const topContent: CreatorTopContentItem[] = contentDocs.map((doc) => ({
-    id: doc._id.toString(),
-    title: doc.title,
-    contentType: doc.contentType as "video" | "article" | "file",
-    viewsCount: asNumber(doc.viewsCount),
-    downloadsCount: asNumber(doc.downloadsCount),
-    publishedAt: isoOrNull(doc.publishedAt),
-  }));
+  const topContent: CreatorTopContentItem[] = [...allContentDocs]
+    .sort((a, b) => asNumber(b.viewsCount) - asNumber(a.viewsCount))
+    .slice(0, 5)
+    .map((doc) => ({
+      id: doc._id.toString(),
+      title: doc.title,
+      contentType: doc.contentType as "video" | "article" | "file",
+      viewsCount: asNumber(doc.viewsCount),
+      downloadsCount: asNumber(doc.downloadsCount),
+      publishedAt: isoOrNull(doc.publishedAt),
+    }));
 
   // Resolve subscriber names for the activity feed in a single round
   // trip rather than N queries.
@@ -288,6 +313,9 @@ export async function getCreatorOverview(): Promise<CreatorOverviewResponse> {
       monthlyRevenueCents,
       activeSubscribers: activeSubs.length,
       paidSubscribers: paidSubs.length,
+      freeSubscribers,
+      basicSubscribers,
+      premiumSubscribers,
       contentViews,
       cancelledSubscribers30d: cancelled30dCount,
       pendingCancellations,
@@ -344,23 +372,54 @@ export async function getCreatorSubscribers(): Promise<CreatorSubscribersRespons
         userProfile?.fullName ||
         userProfile?.email
     );
+    const accessLevel = (sub.accessLevel as "free" | "basic" | "premium") ?? "free";
+    const lifecycle = membershipLifecycle({
+      status: sub.status,
+      accessLevel,
+      cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+    });
+    const periodEndIso = isoOrNull(sub.currentPeriodEnd);
+    const ending = Boolean(sub.cancelAtPeriodEnd) || sub.status === "canceled" || sub.status === "expired";
+    const quota = snapshotFromSubscription(sub);
+    const isPaidActive =
+      accessLevel !== "free" &&
+      Boolean(sub.stripeSubscriptionId) &&
+      ACTIVE_STATUSES.includes(sub.status as (typeof ACTIVE_STATUSES)[number]);
+
     return {
       subscriptionId: sub._id.toString(),
       subscriberClerkUserId: sub.subscriberClerkUserId,
       name,
       email: userProfile?.email ?? "",
       avatarUrl: userProfile?.avatarUrl ?? "",
-      plan: planLabel(sub.accessLevel),
-      accessLevel: (sub.accessLevel as "free" | "basic" | "premium") ?? "free",
+      plan: planLabel(accessLevel),
+      accessLevel,
+      priceMonthly: asNumber(sub.priceMonthly),
       status: sub.status as CreatorSubscriberRow["status"],
+      lifecycle,
       renewalLabel: formatRenewalLabel({
         status: sub.status,
-        accessLevel: sub.accessLevel,
+        accessLevel,
         currentPeriodEnd: sub.currentPeriodEnd,
         canceledAt: sub.canceledAt,
         cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
       }),
-      engagement: classifyEngagement(sub.accessLevel),
+      currentPeriodEnd: periodEndIso,
+      cancelAtPeriodEnd: Boolean(sub.cancelAtPeriodEnd),
+      daysRemaining: daysRemaining(periodEndIso),
+      daysRemainingLabel: periodEndIso
+        ? daysRemainingLabel(periodEndIso, { ending })
+        : accessLevel === "free"
+          ? "No billing cycle"
+          : "",
+      quotaUsed: quota.usedThisPeriod,
+      quotaLimit: quota.monthlyLimit,
+      quotaLabel: quotaLabel(quota.usedThisPeriod, quota.monthlyLimit),
+      canScheduleCancel: isPaidActive && !sub.cancelAtPeriodEnd,
+      canKeepMembership: isPaidActive && Boolean(sub.cancelAtPeriodEnd),
+      canRemoveFollower:
+        accessLevel === "free" &&
+        ACTIVE_STATUSES.includes(sub.status as (typeof ACTIVE_STATUSES)[number]),
       startedAt: (sub.startedAt ?? sub.createdAt).toISOString(),
     };
   });
@@ -369,25 +428,20 @@ export async function getCreatorSubscribers(): Promise<CreatorSubscribersRespons
     ACTIVE_STATUSES.includes(r.status as (typeof ACTIVE_STATUSES)[number])
   );
   const paidRows = activeRows.filter((r) => r.accessLevel !== "free");
-  const highRows = activeRows.filter((r) => r.engagement === "High");
-  const churnRiskRows = rows.filter(
-    (r) =>
-      r.status === "past_due" ||
-      r.status === "canceled" ||
-      r.status === "expired"
-  );
-
-  const highEngagementPercent =
-    activeRows.length > 0
-      ? Math.round((highRows.length / activeRows.length) * 1000) / 10
-      : 0;
+  const scheduledCancellations = activeRows.filter((r) => r.lifecycle === "cancel_scheduled").length;
+  const pastDue = rows.filter((r) => r.status === "past_due").length;
+  const churnRisk = scheduledCancellations + pastDue;
 
   return {
     metrics: {
       totalSubscribers: activeRows.length,
+      freeSubscribers: activeRows.filter((r) => r.accessLevel === "free").length,
+      basicSubscribers: activeRows.filter((r) => r.accessLevel === "basic").length,
+      premiumSubscribers: activeRows.filter((r) => r.accessLevel === "premium").length,
       paidSubscribers: paidRows.length,
-      highEngagementPercent,
-      churnRisk: churnRiskRows.length,
+      scheduledCancellations,
+      pastDue,
+      churnRisk,
     },
     subscribers: rows,
   };
@@ -404,7 +458,7 @@ export async function getCreatorRevenue(): Promise<CreatorRevenueResponse> {
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const [activeSubs, recentPaymentsDocs, failedPaymentCount, upcomingRenewals, allSubs] =
+  const [activeSubs, recentPaymentsDocs, failedPaymentCount, failedPaymentCount30d, upcomingRenewals, allSubs] =
     await Promise.all([
       SubscriptionModel.find({
         creatorClerkUserId,
@@ -414,10 +468,16 @@ export async function getCreatorRevenue(): Promise<CreatorRevenueResponse> {
         .sort({ paidAt: -1, createdAt: -1 })
         .limit(8),
       PaymentModel.countDocuments({ creatorClerkUserId, status: "failed" }),
+      PaymentModel.countDocuments({
+        creatorClerkUserId,
+        status: "failed",
+        createdAt: { $gte: thirtyDaysAgo },
+      }),
       SubscriptionModel.find({
         creatorClerkUserId,
         status: { $in: [...ACTIVE_STATUSES] },
         accessLevel: { $ne: "free" },
+        cancelAtPeriodEnd: { $ne: true },
         currentPeriodEnd: { $gte: new Date(), $lte: sevenDaysFromNow },
       }),
       SubscriptionModel.find({
@@ -426,7 +486,17 @@ export async function getCreatorRevenue(): Promise<CreatorRevenueResponse> {
     ]);
 
   const paidActive = activeSubs.filter((s) => s.accessLevel !== "free");
+  const basicActive = paidActive.filter((s) => s.accessLevel === "basic");
+  const premiumActive = paidActive.filter((s) => s.accessLevel === "premium");
   const mrrCents = paidActive.reduce(
+    (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
+    0
+  );
+  const basicMrrCents = basicActive.reduce(
+    (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
+    0
+  );
+  const premiumMrrCents = premiumActive.reduce(
     (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
     0
   );
@@ -496,14 +566,23 @@ export async function getCreatorRevenue(): Promise<CreatorRevenueResponse> {
     metrics: {
       mrrCents,
       arpuCents,
-      failedPayments: failedPaymentCount,
+      failedPayments: failedPaymentCount30d,
+      failedPayments30d: failedPaymentCount30d,
+      failedPaymentsAllTime: failedPaymentCount,
       churnRatePercent,
+    },
+    mrrByTier: {
+      basicMembers: basicActive.length,
+      basicMrrCents,
+      premiumMembers: premiumActive.length,
+      premiumMrrCents,
     },
     trend,
     recentPayments,
     forecast: {
       upcomingRenewalsCount: upcomingRenewals.length,
       forecastedRevenueCents,
+      windowDays: 7,
     },
   };
 }
@@ -576,18 +655,10 @@ export async function getCreatorAnalytics(): Promise<CreatorAnalyticsResponse> {
       const stat = isFile
         ? `${asNumber(doc.downloadsCount).toLocaleString()} downloads`
         : `${asNumber(doc.viewsCount).toLocaleString()} views`;
-      const created = doc.createdAt ?? new Date();
-      const ageDays =
-        (Date.now() - created.getTime()) / (1000 * 60 * 60 * 24);
-      // Without time-series data we can only infer a soft trend from
-      // recency: < 7 days → "up", < 30 days → "steady", else "down".
-      const trend: "up" | "down" | "steady" =
-        ageDays < 7 ? "up" : ageDays < 30 ? "steady" : "down";
       return {
         id: doc._id.toString(),
         title: doc.title,
         primaryStat: stat,
-        trend,
       };
     }
   );

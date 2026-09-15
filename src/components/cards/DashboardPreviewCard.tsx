@@ -2,7 +2,7 @@ import React from "react";
 
 export function DashboardPreviewCard() {
   return (
-    <div className="relative w-full max-w-5xl mx-auto mt-16 animate-fade-in-up">
+    <div className="relative w-full max-w-5xl mx-auto mt-8 lg:mt-0 animate-fade-in-up">
       {/* Decorative Glow */}
       <div className="absolute -inset-4 bg-gradient-to-r from-emerald-500/20 via-sky-500/20 to-emerald-500/20 rounded-[3rem] blur-3xl opacity-70 -z-10"></div>
 
@@ -46,7 +46,7 @@ export function DashboardPreviewCard() {
                 </span>
               </div>
               <p className="text-sm font-semibold text-[var(--color-muted)] mb-1">{stat.label}</p>
-              <p className="text-3xl font-display font-bold text-[var(--color-ink)] tracking-tight">{stat.value}</p>
+              <p className="text-xl sm:text-3xl font-display font-bold text-[var(--color-ink)] tracking-tight">{stat.value}</p>
             </div>
           ))}
         </div>

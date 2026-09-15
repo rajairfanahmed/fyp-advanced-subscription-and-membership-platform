@@ -14,6 +14,7 @@ import {
   Save,
   ShieldCheck,
 } from "lucide-react";
+import { ConfirmPhraseDialog } from "@/components/admin/ConfirmPhraseDialog";
 import { cn } from "@/lib/utils";
 import type {
   AdminPlatformSettingsInput,
@@ -22,7 +23,7 @@ import type {
 
 const DEFAULTS: AdminPlatformSettingsResponse = {
   platformDisplayName: "Advanced Subscription & Membership Platform",
-  supportEmail: "support@example.com",
+  supportEmail: "support@asmp.app",
   defaultSubscriberTier: "free",
   defaultCreatorStatus: "review",
   platformCurrency: "usd",
@@ -30,6 +31,7 @@ const DEFAULTS: AdminPlatformSettingsResponse = {
   renewalReminderLeadDays: 7,
   failureAlertCadence: "immediate",
   maintenanceMode: false,
+  platformFeeBps: 10000,
 };
 
 export default function AdminSettingsPage() {
@@ -38,6 +40,7 @@ export default function AdminSettingsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [confirmMaintenance, setConfirmMaintenance] = useState(false);
   const [feedback, setFeedback] = useState<{
     type: "success" | "error";
     text: string;
@@ -79,7 +82,7 @@ export default function AdminSettingsPage() {
     setFeedback(null);
   }
 
-  async function persist(payload: AdminPlatformSettingsInput) {
+  async function persist(payload: AdminPlatformSettingsInput & { confirmationPhrase?: string }) {
     setIsSaving(true);
     setFeedback(null);
     try {
@@ -111,7 +114,11 @@ export default function AdminSettingsPage() {
   }
 
   async function handleToggleMaintenance() {
-    await persist({ maintenanceMode: !settings.maintenanceMode });
+    if (!settings.maintenanceMode) {
+      setConfirmMaintenance(true);
+      return;
+    }
+    await persist({ maintenanceMode: false });
   }
 
   return (
@@ -315,6 +322,32 @@ export default function AdminSettingsPage() {
                         Display only. Live plans bill monthly through Stripe.
                       </p>
                     </div>
+                    <div className="space-y-3 sm:col-span-2">
+                      <label className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                        Platform fee
+                      </label>
+                      <div className="flex items-center gap-3">
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          step={1}
+                          value={Math.round(settings.platformFeeBps / 100)}
+                          onChange={(e) =>
+                            update(
+                              "platformFeeBps",
+                              Math.max(0, Math.min(10000, Math.round(Number(e.target.value || 0) * 100)))
+                            )
+                          }
+                          disabled={isLoading || isSaving}
+                          className="w-full max-w-[140px] px-5 py-4 bg-slate-50/50 border border-slate-100 rounded-2xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all font-bold text-slate-900 disabled:opacity-60"
+                        />
+                        <span className="text-sm font-black text-slate-600">%</span>
+                      </div>
+                      <p className="text-xs font-medium text-slate-500 leading-relaxed">
+                        Share of collected charges the platform keeps. 100% until creator payouts exist.
+                      </p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -339,16 +372,18 @@ export default function AdminSettingsPage() {
                     </label>
                     <select
                       value={String(settings.renewalReminderLeadDays)}
-                      disabled
-                      title="Lead days are stored. Notices are sent when billing events happen."
-                      className="w-full px-4 py-3 bg-slate-50/50 border border-slate-100 rounded-2xl font-bold text-slate-900 text-xs cursor-not-allowed opacity-60"
+                      disabled={isLoading || isSaving}
+                      onChange={(e) =>
+                        update("renewalReminderLeadDays", Number(e.target.value))
+                      }
+                      className="w-full px-4 py-3 bg-slate-50/50 border border-slate-100 rounded-2xl font-bold text-slate-900 text-xs cursor-pointer disabled:opacity-60"
                     >
                       <option value="7">7 days before</option>
                       <option value="3">3 days before</option>
                       <option value="1">1 day before</option>
                     </select>
                     <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
-                      Stored only. Billing notices are created in-app when Stripe reports a charge or cancellation — there is no scheduled reminder email.
+                      In-app billing notices go out this many days before a paid renewal, and again when Stripe reports an upcoming invoice. Members can mute them from Account.
                     </p>
                   </div>
                   <div className="space-y-3">
@@ -430,6 +465,22 @@ export default function AdminSettingsPage() {
           </div>
         </div>
       </form>
+      <ConfirmPhraseDialog
+        open={confirmMaintenance}
+        title="Enable maintenance mode?"
+        description="Non-admin visitors are sent to the maintenance page and non-admin APIs return 503. Type MAINTENANCE to enable."
+        phrase="MAINTENANCE"
+        confirmLabel="Enable maintenance"
+        pending={isSaving}
+        onClose={() => setConfirmMaintenance(false)}
+        onConfirm={async () => {
+          await persist({
+            maintenanceMode: true,
+            confirmationPhrase: "MAINTENANCE",
+          });
+          setConfirmMaintenance(false);
+        }}
+      />
     </AdminShell>
   );
 }

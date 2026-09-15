@@ -1,0 +1,87 @@
+@startuml Class_Diagram
+!include _style.puml
+title Figure 4.7 : Class Diagram
+
+hide circle
+skinparam classAttributeIconSize 0
+
+class UserProfile {
+  id : uuid
+  clerk_user_id
+  email
+  role : subscriber | creator
+  account_status : active | suspended
+}
+
+class CreatorProfile {
+  id : uuid
+  creator_slug
+  profile_status : draft | published
+  subscriber_count
+}
+
+class SubscriberProfile {
+  id : uuid
+  display_name
+}
+
+class Plan {
+  id : uuid
+  access_level : free | basic | premium
+  price_monthly
+  stripe_price_id
+  stripe_product_id
+}
+
+class Content {
+  id : uuid
+  content_type : video | article | file
+  required_plan
+  status : draft | published | archived
+  file_key / video_key
+}
+
+class Subscription {
+  id : uuid
+  access_level
+  status : active | trialing | past_due | canceled
+  cancel_at_period_end
+  stripe_subscription_id
+  monthly_download_count
+}
+
+class Payment {
+  id : uuid
+  amount_cents
+  status : succeeded | pending | failed | refunded
+  stripe_invoice_id
+}
+
+class Notification {
+  id : uuid
+  category
+  is_read
+}
+
+class PlatformSettings {
+  singleton_key = primary
+  maintenance_mode
+}
+
+UserProfile "1" --> "0..1" CreatorProfile
+UserProfile "1" --> "0..1" SubscriberProfile
+CreatorProfile "1" --> "*" Plan
+CreatorProfile "1" --> "*" Content
+SubscriberProfile "1" --> "*" Subscription
+CreatorProfile "1" --> "*" Subscription
+Plan "1" --> "*" Subscription
+Subscription "1" --> "*" Payment
+UserProfile "1" --> "*" Notification
+
+note bottom of Subscription
+  Unique (subscriber_profile_id, creator_profile_id).
+  Paid rows are written from Stripe webhooks.
+  Creators cannot own a subscriber checkout.
+end note
+
+@enduml

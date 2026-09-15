@@ -29,8 +29,6 @@ export type PlanCreateInput = {
   accessLevel?: unknown;
   features?: unknown;
   isActive?: unknown;
-  stripePriceId?: unknown;
-  stripeProductId?: unknown;
 };
 
 export type PlanUpdateInput = {
@@ -39,6 +37,4 @@ export type PlanUpdateInput = {
   priceMonthly?: unknown;
   features?: unknown;
   isActive?: unknown;
-  stripePriceId?: unknown;
-  stripeProductId?: unknown;
 };

@@ -4,9 +4,15 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Container } from "@/components/layout/Container";
 import { Badge } from "@/components/ui/Badge";
+import { Button } from "@/components/ui/Button";
 import { MotionItem, MotionReveal } from "@/components/ui/MotionReveal";
+import {
+  fetchWithTimeout,
+  readJsonSafe,
+  RequestTimeoutError,
+} from "@/lib/http/fetch-timeout";
 import type { PublicCreator } from "@/lib/mongodb/public-data";
-import { Eye, FileText, Users } from "lucide-react";
+import { Eye, FileText, Sparkles, Users } from "lucide-react";
 
 function initials(name: string) {
   return name
@@ -21,17 +27,34 @@ function initials(name: string) {
 export default function CreatorsPage() {
   const [creators, setCreators] = useState<PublicCreator[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
+  const [loadNonce, setLoadNonce] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadCreators() {
+      setLoadError("");
+      setIsLoading(true);
       try {
-        const res = await fetch("/api/public/creators", { cache: "no-store" });
-        const data = (await res.json()) as { creators: PublicCreator[] };
-        if (!cancelled) setCreators(data.creators);
-      } catch {
-        if (!cancelled) setCreators([]);
+        const res = await fetchWithTimeout("/api/public/creators", {
+          cache: "no-store",
+          timeoutMs: 15_000,
+        });
+        const data = await readJsonSafe<{ creators?: PublicCreator[] }>(res);
+        if (!res.ok) {
+          throw new Error("Couldn’t load creators.");
+        }
+        if (!cancelled) setCreators(data.creators ?? []);
+      } catch (error) {
+        if (!cancelled) {
+          setCreators([]);
+          setLoadError(
+            error instanceof RequestTimeoutError
+              ? error.message
+              : "Couldn’t load creators. Check your connection and try again."
+          );
+        }
       } finally {
         if (!cancelled) setIsLoading(false);
       }
@@ -41,7 +64,7 @@ export default function CreatorsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [loadNonce]);
 
   return (
     <div className="flex flex-col min-h-screen pt-32 pb-20 lg:pt-40 bg-[var(--color-paper)]">
@@ -63,12 +86,52 @@ export default function CreatorsPage() {
         </MotionReveal>
 
         {isLoading ? (
-          <div className="mt-10 bg-white rounded-2xl border border-slate-200 p-8 text-sm font-bold text-slate-600">
-            Loading creators...
+          <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={i}
+                className="bg-white rounded-2xl border border-slate-200 overflow-hidden animate-pulse"
+              >
+                <div className="h-24 bg-slate-100" />
+                <div className="p-6 space-y-3">
+                  <div className="w-16 h-16 rounded-2xl bg-slate-100" />
+                  <div className="h-5 w-2/3 bg-slate-100 rounded-lg" />
+                  <div className="h-4 w-full bg-slate-50 rounded-lg" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : loadError ? (
+          <div className="mt-10 bg-white rounded-[2rem] border border-slate-200 p-10 md:p-14 text-center max-w-xl mx-auto">
+            <h2 className="text-xl font-black font-display text-slate-900 mb-2">
+              Couldn’t load creators
+            </h2>
+            <p className="text-sm font-medium text-slate-600 mb-6 leading-relaxed">
+              {loadError}
+            </p>
+            <Button type="button" variant="primary" onClick={() => setLoadNonce((n) => n + 1)}>
+              Try again
+            </Button>
           </div>
         ) : creators.length === 0 ? (
-          <div className="mt-10 bg-white rounded-2xl border border-slate-200 p-8 text-sm font-bold text-slate-600">
-            No published creators are available yet.
+          <div className="mt-10 bg-white rounded-[2rem] border border-slate-200 p-10 md:p-14 text-center max-w-xl mx-auto">
+            <div className="w-16 h-16 rounded-full bg-emerald-50 border border-emerald-100 flex items-center justify-center mx-auto mb-5">
+              <Sparkles className="w-7 h-7 text-emerald-600" />
+            </div>
+            <h2 className="text-xl font-black font-display text-slate-900 mb-2">
+              No published creators yet
+            </h2>
+            <p className="text-sm font-medium text-slate-600 mb-8 leading-relaxed">
+              Published creator studios will appear here. If you create, publish your profile from Creator Settings.
+            </p>
+            <div className="flex flex-wrap justify-center gap-3">
+              <Button variant="primary" href="/sign-up">
+                Become a creator
+              </Button>
+              <Button variant="secondary" href="/">
+                Back home
+              </Button>
+            </div>
           </div>
         ) : (
           <div className="mt-10 grid sm:grid-cols-2 lg:grid-cols-3 gap-6">

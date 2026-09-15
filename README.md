@@ -162,12 +162,14 @@ npm install
 
 ### 2. PostgreSQL
 
-Create the database, then apply the schema (this is the project’s database bootstrap — there is no separate seed dump of demo users):
+Create the database, then apply the schema:
 
 ```bash
 psql -U postgres -c "CREATE DATABASE \"AdvancedSubscription_MembershipPlatform\";"
 psql -U postgres -d AdvancedSubscription_MembershipPlatform -f scripts/postgres/schema.sql
 ```
+
+Home and `/creators` only list **published** profiles and content from real Clerk accounts. There is no demo catalog.
 
 Optional sanity check:
 

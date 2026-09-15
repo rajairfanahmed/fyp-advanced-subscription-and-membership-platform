@@ -1,7 +1,8 @@
 import { isRecordId } from "@/lib/db/ids";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requireAdminContext } from "@/lib/auth/require-admin";
+import { adminErrorJson } from "@/lib/auth/admin-http";
+import { auditAdmin, requireAdminMutation } from "@/lib/auth/require-admin";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import { PaymentModel } from "@/lib/mongodb/models";
 import {
@@ -19,11 +20,11 @@ import {
  * `Subscription.status` for us.
  */
 export async function POST(
-  _req: NextRequest,
+  req: NextRequest,
   context: { params: Promise<{ paymentId: string }> }
 ) {
   try {
-    await requireAdminContext();
+    const ctx = await requireAdminMutation(req);
     await connectToMongoDB();
 
     const { paymentId } = await context.params;
@@ -67,6 +68,12 @@ export async function POST(
       await stripe.paymentIntents.confirm(payment.stripePaymentIntentId);
     }
 
+    await auditAdmin(ctx, req, {
+      action: "payment.retry",
+      targetType: "payment",
+      targetId: payment._id.toString(),
+    });
+
     return NextResponse.json(
       {
         ok: true,
@@ -84,15 +91,7 @@ export async function POST(
         { status: 503 }
       );
     }
-    const message =
-      error instanceof Error ? error.message : "Failed to retry payment.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:payment:retry]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to retry payment.");
   }
 }

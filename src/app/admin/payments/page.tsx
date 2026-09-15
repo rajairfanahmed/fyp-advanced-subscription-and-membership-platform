@@ -15,6 +15,9 @@ import {
   RefreshCcw,
   ArrowRight,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { ConfirmPhraseDialog } from "@/components/admin/ConfirmPhraseDialog";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import type {
   AdminPaymentRow,
@@ -77,6 +80,8 @@ export default function AdminPaymentsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]["id"]>("all");
   const [tierFilter, setTierFilter] =
@@ -84,12 +89,19 @@ export default function AdminPaymentsPage() {
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [refundTarget, setRefundTarget] = useState<AdminPaymentRow | null>(null);
 
   const load = React.useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
     try {
-      const res = await fetch("/api/admin/payments", { cache: "no-store" });
+      const params = new URLSearchParams({
+        page: String(page),
+        q: debouncedQuery,
+      });
+      const res = await fetch(`/api/admin/payments?${params.toString()}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error || "Failed to load payments.");
@@ -103,7 +115,11 @@ export default function AdminPaymentsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, debouncedQuery]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQuery]);
 
   useEffect(() => {
     load();
@@ -114,20 +130,32 @@ export default function AdminPaymentsPage() {
     kind: "refund" | "retry"
   ) {
     if (actionPending) return;
-    if (
-      kind === "refund" &&
-      typeof window !== "undefined" &&
-      !window.confirm("Issue a Stripe refund for this charge?")
-    ) {
+    if (kind === "refund") {
+      const row = data?.payments.find((p) => p.id === paymentId) ?? null;
+      setRefundTarget(row);
       return;
     }
+    await runPaymentAction(paymentId, "retry");
+  }
+
+  async function runPaymentAction(
+    paymentId: string,
+    kind: "refund" | "retry"
+  ) {
+    if (actionPending) return;
     setActionPending(paymentId);
     setActionError("");
     setFeedback("");
     try {
       const res = await fetch(
         `/api/admin/payments/${encodeURIComponent(paymentId)}/${kind}`,
-        { method: "POST" }
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(
+            kind === "refund" ? { confirmationPhrase: "REFUND" } : {}
+          ),
+        }
       );
       const body = (await res.json().catch(() => ({}))) as {
         error?: string;
@@ -139,6 +167,7 @@ export default function AdminPaymentsPage() {
       setFeedback(
         body.message || (kind === "refund" ? "Refund issued." : "Retry queued.")
       );
+      setRefundTarget(null);
       await load();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Action failed.");
@@ -149,21 +178,14 @@ export default function AdminPaymentsPage() {
 
   const filtered = useMemo(() => {
     if (!data) return [];
-    const needle = query.trim().toLowerCase();
     return data.payments.filter((row) => {
-      const matchesQuery =
-        !needle ||
-        row.subscriberName.toLowerCase().includes(needle) ||
-        row.subscriberEmail.toLowerCase().includes(needle) ||
-        row.creatorName.toLowerCase().includes(needle) ||
-        row.id.toLowerCase().includes(needle);
       const matchesStatus =
         statusFilter === "all" || row.status === statusFilter;
       const matchesTier =
         tierFilter === "all" || row.accessLevel === tierFilter;
-      return matchesQuery && matchesStatus && matchesTier;
+      return matchesStatus && matchesTier;
     });
-  }, [data, query, statusFilter, tierFilter]);
+  }, [data, statusFilter, tierFilter]);
 
   const metrics = data?.metrics;
   const failed = data?.failed;
@@ -368,7 +390,7 @@ export default function AdminPaymentsPage() {
                                 </span>
                               </td>
                               <td className="p-8 text-right">
-                                <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <div className="flex items-center justify-end gap-2 opacity-100 transition-opacity">
                                   {payment.receiptUrl ? (
                                     <a
                                       href={payment.receiptUrl}
@@ -455,6 +477,7 @@ export default function AdminPaymentsPage() {
                         </div>
                       ))}
                     </div>
+                    <AdminPager page={data?.page} onPage={setPage} />
                   </>
                 )}
               </div>
@@ -531,6 +554,18 @@ export default function AdminPaymentsPage() {
           </div>
         </div>
       </div>
+      <ConfirmPhraseDialog
+        open={Boolean(refundTarget)}
+        title="Refund this charge?"
+        description="Stripe issues the refund and the related membership is cancelled. Type REFUND to confirm."
+        phrase="REFUND"
+        confirmLabel="Issue refund"
+        pending={Boolean(refundTarget && actionPending === refundTarget.id)}
+        onClose={() => setRefundTarget(null)}
+        onConfirm={() => {
+          if (refundTarget) void runPaymentAction(refundTarget.id, "refund");
+        }}
+      />
     </AdminShell>
   );
 }

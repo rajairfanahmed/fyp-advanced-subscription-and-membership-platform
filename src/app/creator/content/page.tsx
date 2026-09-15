@@ -189,7 +189,7 @@ export default function ContentManagementPage() {
 
   return (
     <CreatorShell>
-      <div className="space-y-12">
+      <div className="space-y-12 min-w-0">
         <DashboardHeader
           eyebrow="Studio Assets"
           title="Content Management"
@@ -281,9 +281,9 @@ export default function ContentManagementPage() {
               </div>
             )}
             {isLoading ? (
-              <div className="p-10 text-sm font-bold text-slate-500">Loading content...</div>
+              <div className="p-5 sm:p-8 lg:p-10 text-sm font-bold text-slate-500">Loading content...</div>
             ) : filteredContent.length === 0 ? (
-              <div className="p-10 text-center">
+              <div className="p-5 sm:p-8 lg:p-10 text-center">
                 <p className="text-lg font-black text-slate-700 mb-2">
                   {content.length === 0 ? "No creator content yet" : "No content matches the active filters."}
                 </p>
@@ -302,37 +302,37 @@ export default function ContentManagementPage() {
               </div>
             ) : (
               <>
-                <div className="hidden md:block">
+                <div className="hidden md:block overflow-x-auto min-w-0">
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                        <th className="p-8">Asset Details</th>
-                        <th className="p-8">Access Tier</th>
-                        <th className="p-8">Status</th>
-                        <th className="p-8">Engagement</th>
-                        <th className="p-8 text-right">Actions</th>
+                        <th className="p-4 lg:p-8">Asset Details</th>
+                        <th className="p-4 lg:p-8">Access Tier</th>
+                        <th className="p-4 lg:p-8">Status</th>
+                        <th className="p-4 lg:p-8">Engagement</th>
+                        <th className="p-4 lg:p-8 text-right">Actions</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-sm">
                       {filteredContent.map((item) => (
                         <tr key={item.id} className="hover:bg-slate-50/30 transition-colors group">
-                          <td className="p-8">
+                          <td className="p-4 lg:p-8">
                             <div className="flex items-center gap-5">
                               <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 text-slate-400 shadow-sm group-hover:bg-white transition-colors">
                                 <TypeIcon item={item} />
                               </div>
-                              <div>
-                                <p className="font-bold text-slate-900 mb-1 leading-snug">{item.title}</p>
+                              <div className="min-w-0">
+                                <p className="font-bold text-slate-900 mb-1 leading-snug truncate">{item.title}</p>
                                 <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.2em] opacity-80">
                                   {typeLabel(item)} {subtypeLabel(item) && <span className="opacity-60">({subtypeLabel(item)})</span>}
                                 </span>
                               </div>
                             </div>
                           </td>
-                          <td className="p-8">
+                          <td className="p-4 lg:p-8">
                             <Badge variant={item.requiredPlan === "premium" ? "sky" : "emerald"} className="uppercase tracking-widest text-[9px] border-transparent">{item.requiredPlan}</Badge>
                           </td>
-                          <td className="p-8">
+                          <td className="p-4 lg:p-8">
                             <Badge
                               variant={item.status === "published" ? "default" : "locked"}
                               className={cn(
@@ -343,10 +343,10 @@ export default function ContentManagementPage() {
                               {item.status}
                             </Badge>
                           </td>
-                          <td className="p-8 font-black text-[10px] uppercase tracking-widest text-slate-400 opacity-80">
+                          <td className="p-4 lg:p-8 font-black text-[10px] uppercase tracking-widest text-slate-400 opacity-80">
                             {engagementLabel(item)}
                           </td>
-                          <td className="p-8 text-right">
+                          <td className="p-4 lg:p-8 text-right">
                             <div className="flex items-center justify-end gap-3">
                               <Button variant="outline" size="sm" href={`/creator/content/${item.id}/edit`} className="h-9 px-4 text-xs bg-white rounded-xl">Edit</Button>
                               <ContentActionsMenu
@@ -369,13 +369,13 @@ export default function ContentManagementPage() {
 
                 <div className="md:hidden divide-y divide-slate-100">
                   {filteredContent.map((item) => (
-                    <div key={item.id} className="p-6 space-y-6">
-                      <div className="flex gap-4">
+                    <div key={item.id} className="p-5 space-y-5">
+                      <div className="flex gap-4 min-w-0">
                         <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center shrink-0 text-slate-400 shadow-sm">
                           <TypeIcon item={item} />
                         </div>
-                        <div className="flex-1">
-                          <p className="font-bold text-slate-900 mb-1 leading-snug">{item.title}</p>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-slate-900 mb-1 leading-snug break-words">{item.title}</p>
                           <div className="flex items-center gap-3">
                             <span className="text-[9px] font-black text-slate-400 uppercase tracking-[0.15em]">{typeLabel(item)} {subtypeLabel(item)}</span>
                             <span className="text-slate-200">.</span>
@@ -384,7 +384,7 @@ export default function ContentManagementPage() {
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-between pt-6 border-t border-slate-50">
+                      <div className="flex items-center justify-between gap-3 pt-5 border-t border-slate-50">
                         <div className="flex gap-2">
                           <Badge variant={item.requiredPlan === "premium" ? "sky" : "emerald"} className="text-[9px] py-0.5 uppercase tracking-widest">{item.requiredPlan}</Badge>
                           <Badge variant={item.status === "published" ? "default" : "locked"} className={cn("text-[9px] py-0.5 uppercase tracking-widest font-black", item.status === "published" ? "bg-emerald-50 text-emerald-700" : item.status === "draft" ? "bg-amber-50 text-amber-700" : "bg-slate-100 text-slate-600")}>

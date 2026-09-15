@@ -98,7 +98,9 @@ export default function CreatorOverviewPage() {
       label: "Monthly Revenue",
       value: metrics ? formatCurrencyCents(metrics.monthlyRevenueCents) : "—",
       icon: <DollarSign className="w-5 h-5 text-emerald-600" />,
-      trend: metrics ? `${metrics.paidSubscribers} paid` : "—",
+      trend: metrics
+        ? `${metrics.basicSubscribers} basic · ${metrics.premiumSubscribers} premium`
+        : "—",
       bg: "bg-emerald-50",
     },
     {
@@ -106,7 +108,7 @@ export default function CreatorOverviewPage() {
       value: metrics ? formatNumber(metrics.activeSubscribers) : "—",
       icon: <Users className="w-5 h-5 text-sky-600" />,
       trend: metrics
-        ? `${formatNumber(metrics.paidSubscribers)} paid`
+        ? `${formatNumber(metrics.freeSubscribers)} free · ${formatNumber(metrics.paidSubscribers)} paid`
         : "—",
       bg: "bg-sky-50",
     },
@@ -114,7 +116,7 @@ export default function CreatorOverviewPage() {
       label: "Content Views",
       value: metrics ? formatNumber(metrics.contentViews) : "—",
       icon: <Eye className="w-5 h-5 text-violet-600" />,
-      trend: "All time",
+      trend: "All published content",
       bg: "bg-violet-50",
     },
     {
@@ -123,6 +125,7 @@ export default function CreatorOverviewPage() {
       icon: <BellRing className="w-5 h-5 text-amber-600" />,
       trend: "Cancel at period end",
       bg: "bg-amber-50",
+      href: "/creator/subscribers?filter=cancel_scheduled",
     },
     {
       label: "Cancelled Subs (30d)",
@@ -146,7 +149,7 @@ export default function CreatorOverviewPage() {
 
   return (
     <CreatorShell>
-      <div className="space-y-12">
+      <div className="space-y-12 min-w-0">
         <DashboardHeader
           eyebrow="Workspace Overview"
           title={data?.creatorName ? `${data.creatorName}'s Studio` : "Creator Dashboard"}
@@ -288,50 +291,56 @@ export default function CreatorOverviewPage() {
 
         {/* ── Metrics Grid ── */}
         <MotionItem>
-          <div className="grid grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
-            {metricCards.map((metric, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-[2rem] border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all group"
-              >
-                <div className="flex items-start justify-between mb-5">
-                  <div
-                    className={`w-12 h-12 rounded-2xl ${metric.bg} flex items-center justify-center shrink-0 shadow-sm group-hover:bg-white transition-colors`}
-                  >
-                    {metric.icon}
+          <div className="grid grid-cols-1 min-[480px]:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
+            {metricCards.map((metric, i) => {
+              const card = (
+                <div className="bg-white rounded-[2rem] border border-slate-200 p-6 shadow-sm hover:shadow-md transition-all group h-full">
+                  <div className="flex items-start justify-between mb-5">
+                    <div
+                      className={`w-12 h-12 rounded-2xl ${metric.bg} flex items-center justify-center shrink-0 shadow-sm group-hover:bg-white transition-colors`}
+                    >
+                      {metric.icon}
+                    </div>
+                    <Badge
+                      variant="default"
+                      className="bg-slate-50 text-slate-500 hover:bg-slate-100 font-black text-[9px] sm:text-[10px] uppercase tracking-widest border-transparent max-w-[7.5rem] sm:max-w-[9rem] truncate"
+                    >
+                      {metric.trend}
+                    </Badge>
                   </div>
-                  <Badge
-                    variant="default"
-                    className="bg-slate-50 text-slate-500 hover:bg-slate-100 font-black text-[10px] uppercase tracking-widest border-transparent"
-                  >
-                    {metric.trend}
-                  </Badge>
+                  <h3 className="text-slate-600 font-black text-[10px] uppercase tracking-widest mb-2">
+                    {metric.label}
+                  </h3>
+                  <p className="text-2xl sm:text-3xl font-black font-display text-slate-900 leading-none">
+                    {isLoading ? "…" : metric.value}
+                  </p>
                 </div>
-                <h3 className="text-slate-600 font-black text-[10px] uppercase tracking-widest mb-2">
-                  {metric.label}
-                </h3>
-                <p className="text-3xl font-black font-display text-slate-900 leading-none">
-                  {isLoading ? "…" : metric.value}
-                </p>
-              </div>
-            ))}
+              );
+              return "href" in metric && metric.href ? (
+                <Link key={i} href={metric.href} className="block">
+                  {card}
+                </Link>
+              ) : (
+                <div key={i}>{card}</div>
+              );
+            })}
           </div>
         </MotionItem>
 
         <div className="grid lg:grid-cols-3 gap-6 md:gap-10">
 
           {/* ── Main Content Area (Left) ── */}
-          <div className="lg:col-span-2 space-y-12">
+          <div className="lg:col-span-2 space-y-12 min-w-0">
 
             {/* Quick Actions */}
             <MotionItem>
               <h2 className="text-xl font-black font-display text-slate-900 mb-6 tracking-tight">
                 Quick Actions
               </h2>
-              <div className="grid sm:grid-cols-2 gap-6">
+              <div className="grid sm:grid-cols-2 gap-4 sm:gap-6">
                 <Link
                   href="/creator/content/new"
-                  className="bg-white rounded-[2rem] border border-slate-200 p-8 flex items-center gap-6 hover:border-emerald-300 hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden"
+                  className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8 flex items-center gap-4 sm:gap-6 hover:border-emerald-300 hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <PlaySquare className="w-20 h-20 text-emerald-600 -rotate-12 translate-x-4 -translate-y-4" />
@@ -339,7 +348,7 @@ export default function CreatorOverviewPage() {
                   <div className="w-14 h-14 rounded-2xl bg-emerald-50 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform shadow-sm">
                     <PlaySquare className="w-7 h-7 text-emerald-600" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-black text-slate-900 mb-1 uppercase tracking-tight text-sm">
                       Add Content
                     </h3>
@@ -351,7 +360,7 @@ export default function CreatorOverviewPage() {
 
                 <Link
                   href="/creator/plans"
-                  className="bg-white rounded-[2rem] border border-slate-200 p-8 flex items-center gap-6 hover:border-sky-300 hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden"
+                  className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8 flex items-center gap-4 sm:gap-6 hover:border-sky-300 hover:shadow-xl hover:-translate-y-1 transition-all group relative overflow-hidden"
                 >
                   <div className="absolute top-0 right-0 p-4 opacity-5 group-hover:opacity-10 transition-opacity">
                     <CreditCard className="w-20 h-20 text-sky-600 -rotate-12 translate-x-4 -translate-y-4" />
@@ -359,7 +368,7 @@ export default function CreatorOverviewPage() {
                   <div className="w-14 h-14 rounded-2xl bg-sky-50 flex items-center justify-center shrink-0 group-hover:scale-110 transition-transform shadow-sm">
                     <CreditCard className="w-7 h-7 text-sky-600" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-black text-slate-900 mb-1 uppercase tracking-tight text-sm">
                       Manage Plans
                     </h3>
@@ -373,8 +382,8 @@ export default function CreatorOverviewPage() {
 
             {/* Engagement Leaders */}
             <MotionItem>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
-                <div className="flex items-center justify-between mb-8">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6 sm:mb-8">
                   <h2 className="text-xl font-black font-display text-slate-900 tracking-tight">
                     Engagement Leaders
                   </h2>
@@ -388,7 +397,7 @@ export default function CreatorOverviewPage() {
                 {isLoading ? (
                   <p className="text-sm font-bold text-slate-500">Loading top content…</p>
                 ) : data && data.topContent.length === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 p-8 text-center">
+                  <div className="rounded-2xl border border-dashed border-slate-200 p-5 sm:p-8 text-center">
                     <p className="font-black text-slate-700 mb-2">No content yet</p>
                     <p className="text-sm font-medium text-slate-500 mb-4">
                       Publish your first video, article, or download to start tracking engagement.
@@ -403,7 +412,7 @@ export default function CreatorOverviewPage() {
                       <Link
                         key={item.id}
                         href={`/creator/content/${item.id}/edit`}
-                        className="flex items-center justify-between p-6 rounded-2xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100 group"
+                        className="flex items-center justify-between gap-3 p-4 sm:p-6 rounded-2xl hover:bg-slate-50 transition-all border border-transparent hover:border-slate-100 group min-w-0"
                       >
                         <div className="flex items-center gap-5 min-w-0">
                           <div className="w-14 h-14 rounded-2xl bg-slate-50 border border-slate-100 flex items-center justify-center text-slate-400 group-hover:bg-white shadow-sm shrink-0">
@@ -441,7 +450,7 @@ export default function CreatorOverviewPage() {
 
             {/* Activity Feed */}
             <MotionItem>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm relative">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm relative">
                 <h2 className="text-xl font-black font-display text-slate-900 mb-8 tracking-tight">
                   Recent Activity
                 </h2>
@@ -455,10 +464,10 @@ export default function CreatorOverviewPage() {
                   <div className="space-y-8 relative">
                     <div className="absolute top-0 left-[1.125rem] bottom-0 w-px bg-slate-100" />
                     {data?.recentActivity.map((activity) => (
-                      <div key={activity.id} className="flex gap-6 relative">
+                      <div key={activity.id} className="flex gap-4 sm:gap-6 relative min-w-0">
                         <div className="w-2.5 h-2.5 rounded-full bg-slate-300 ring-4 ring-white shrink-0 mt-1.5 z-10" />
                         <div>
-                          <p className="text-sm font-bold text-slate-900 leading-snug mb-1.5 opacity-80">
+                          <p className="text-sm font-bold text-slate-900 leading-snug mb-1.5 opacity-80 break-words">
                             {activity.text}
                           </p>
                           <span className="text-[10px] text-slate-600 font-black uppercase tracking-widest">

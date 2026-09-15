@@ -1,3 +1,4 @@
+import { blockedAccountIds } from "@/lib/account/status";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
   ContentModel,
@@ -113,11 +114,19 @@ function serializeContent(content: ContentDocument, creator: CreatorProfileDocum
   };
 }
 
+async function publishedCreatorsAcceptingMembers(limit?: number) {
+  const query = CreatorProfileModel.find({ profileStatus: "published" }).sort({
+    updatedAt: -1,
+  });
+  const creators = typeof limit === "number" ? await query.limit(Math.max(limit * 3, limit)) : await query;
+  const blocked = await blockedAccountIds(creators.map((creator) => creator.clerkUserId));
+  const open = creators.filter((creator) => !blocked.has(creator.clerkUserId));
+  return typeof limit === "number" ? open.slice(0, limit) : open;
+}
+
 export async function getPublishedCreators(limit = 24) {
   await connectToMongoDB();
-  const creators = await CreatorProfileModel.find({ profileStatus: "published" })
-    .sort({ updatedAt: -1 })
-    .limit(limit);
+  const creators = await publishedCreatorsAcceptingMembers(limit);
   return creators.map(serializeCreator);
 }
 
@@ -127,12 +136,15 @@ export async function getPublishedCreatorBySlug(creatorSlug: string) {
     creatorSlug: slugify(creatorSlug),
     profileStatus: "published",
   });
-  return creator ? serializeCreator(creator) : null;
+  if (!creator) return null;
+  const blocked = await blockedAccountIds([creator.clerkUserId]);
+  if (blocked.has(creator.clerkUserId)) return null;
+  return serializeCreator(creator);
 }
 
 export async function getPublishedContent(limit = 24) {
   await connectToMongoDB();
-  const creators = await CreatorProfileModel.find({ profileStatus: "published" });
+  const creators = await publishedCreatorsAcceptingMembers();
   const creatorsByClerkId = new Map(creators.map((creator) => [creator.clerkUserId, creator]));
 
   const content = await ContentModel.find({ status: "published" })
@@ -227,9 +239,7 @@ export async function getPublicPlansSummary(): Promise<PublicPlansSummary> {
   // Anchor the tier list to creators whose profile is actually
   // published — drafts shouldn't influence public marketing copy.
   const publishedCreatorClerkIds = new Set(
-    (await CreatorProfileModel.find({
-      profileStatus: "published",
-    }).select("clerkUserId")).map((c) => c.clerkUserId)
+    (await publishedCreatorsAcceptingMembers()).map((c) => c.clerkUserId)
   );
 
   const subscribersByTier: Record<PlanAccessLevel, number> = {
@@ -297,6 +307,14 @@ export async function getPublishedContentByCreatorSlug(creatorSlug: string) {
     profileStatus: "published",
   });
   if (!creator) {
+    return {
+      creator: null,
+      content: [] as PublicContent[],
+      plans: [] as PublicCreatorPlan[],
+    };
+  }
+  const blocked = await blockedAccountIds([creator.clerkUserId]);
+  if (blocked.has(creator.clerkUserId)) {
     return {
       creator: null,
       content: [] as PublicContent[],

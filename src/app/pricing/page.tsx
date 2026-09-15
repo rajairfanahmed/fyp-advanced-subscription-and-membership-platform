@@ -284,7 +284,7 @@ export default function PricingPage() {
             </MotionItem>
 
             <MotionItem>
-              <h1 className="text-5xl md:text-6xl lg:text-7xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-8">
+              <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6 sm:mb-8">
                 Choose The Membership Plan That Fits Your <span className="text-gradient-primary">Content Business</span>
               </h1>
             </MotionItem>
@@ -363,7 +363,7 @@ export default function PricingPage() {
                     </div>
 
                     <div className="flex items-baseline gap-2 mb-6">
-                      <span className="text-5xl font-black font-display text-[var(--color-ink)] tracking-tight">{plan.price}</span>
+                      <span className="text-3xl sm:text-5xl font-black font-display text-[var(--color-ink)] tracking-tight">{plan.price}</span>
                       <span className="text-sm font-medium text-[var(--color-muted)]">{plan.billing}</span>
                     </div>
 
@@ -509,7 +509,7 @@ export default function PricingPage() {
         <Container className="relative z-10 text-center max-w-4xl">
           <MotionReveal staggerChildren={0.1}>
             <MotionItem>
-              <h2 className="text-5xl md:text-6xl lg:text-[4.5rem] font-black font-display text-[var(--color-ink)] mb-8 tracking-tight leading-[1.05]">
+              <h2 className="text-3xl sm:text-5xl md:text-6xl lg:text-[4.5rem] font-black font-display text-[var(--color-ink)] mb-8 tracking-tight leading-[1.05]">
                 Start Simple. Grow Into A <span className="text-gradient-primary">Full Membership System.</span>
               </h2>
             </MotionItem>

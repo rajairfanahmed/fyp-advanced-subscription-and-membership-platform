@@ -5,6 +5,8 @@ export {
   deleteFromCloudflareR2,
   getCloudflareR2Client,
   getObjectFromCloudflareR2,
+  storageKeyBelongsToUser,
+  storageKeyFromPublicUrl,
   uploadStreamToCloudflareR2,
   uploadToCloudflareR2,
   validateStorageFile,

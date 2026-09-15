@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { AdminShell } from "@/components/dashboard/AdminShell";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
@@ -15,6 +15,8 @@ import {
   UserCheck,
   UserX,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import type { AdminUserRow, AdminUsersResponse } from "@/types/admin-stats";
 
@@ -50,8 +52,14 @@ export default function AdminUsersPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
   const [roleFilter, setRoleFilter] =
     useState<(typeof ROLE_FILTERS)[number]["id"]>("all");
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQuery, roleFilter]);
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +67,14 @@ export default function AdminUsersPage() {
       setIsLoading(true);
       setErrorMessage("");
       try {
-        const res = await fetch("/api/admin/users", { cache: "no-store" });
+        const params = new URLSearchParams({
+          page: String(page),
+          q: debouncedQuery,
+          role: roleFilter,
+        });
+        const res = await fetch(`/api/admin/users?${params.toString()}`, {
+          cache: "no-store",
+        });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
           throw new Error(body.error || "Failed to load users.");
@@ -79,21 +94,9 @@ export default function AdminUsersPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, debouncedQuery, roleFilter]);
 
-  const filtered = useMemo(() => {
-    if (!data) return [];
-    const needle = query.trim().toLowerCase();
-    return data.users.filter((row) => {
-      const matchesQuery =
-        !needle ||
-        row.name.toLowerCase().includes(needle) ||
-        row.email.toLowerCase().includes(needle) ||
-        row.clerkUserId.toLowerCase().includes(needle);
-      const matchesRole = roleFilter === "all" || row.role === roleFilter;
-      return matchesQuery && matchesRole;
-    });
-  }, [data, query, roleFilter]);
+  const rows = data?.users ?? [];
 
   const metrics = data?.metrics;
 
@@ -208,7 +211,7 @@ export default function AdminUsersPage() {
           <div className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
             {isLoading ? (
               <div className="p-12 text-sm font-bold text-slate-500">Loading users…</div>
-            ) : filtered.length === 0 ? (
+            ) : rows.length === 0 ? (
               <div className="p-16 flex flex-col items-center justify-center text-center">
                 <div className="w-16 h-16 rounded-full bg-slate-50 flex items-center justify-center mb-4">
                   <Users className="w-7 h-7 text-slate-300" />
@@ -236,7 +239,7 @@ export default function AdminUsersPage() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-sm">
-                      {filtered.map((user) => (
+                      {rows.map((user) => (
                         <tr key={user.id} className="hover:bg-slate-50/30 transition-colors group">
                           <td className="p-8">
                             <div className="flex items-center gap-4">
@@ -282,7 +285,7 @@ export default function AdminUsersPage() {
                             {formatDate(user.joinedAt)}
                           </td>
                           <td className="p-8 text-right">
-                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <div className="flex items-center justify-end gap-3 opacity-100 transition-opacity">
                               <Link href={`/admin/users/${encodeURIComponent(user.clerkUserId)}`}>
                                 <Button
                                   variant="outline"
@@ -302,7 +305,7 @@ export default function AdminUsersPage() {
 
                 {/* Mobile Cards View */}
                 <div className="md:hidden divide-y divide-slate-100">
-                  {filtered.map((user) => (
+                  {rows.map((user) => (
                     <div key={user.id} className="p-6 space-y-6">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center gap-4">
@@ -361,6 +364,7 @@ export default function AdminUsersPage() {
                     </div>
                   ))}
                 </div>
+                <AdminPager page={data?.page} onPage={setPage} />
               </>
             )}
           </div>

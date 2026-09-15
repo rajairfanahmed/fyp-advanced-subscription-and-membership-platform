@@ -83,6 +83,7 @@ function uploadAssetToR2(input: {
     xhr.open("POST", url, true);
     xhr.withCredentials = true;
     xhr.responseType = "text";
+    xhr.timeout = 120_000;
     // Send the file's mime type so the server can record it on R2.
     xhr.setRequestHeader(
       "Content-Type",
@@ -326,7 +327,7 @@ function UploadField({
           <UploadCloud className="w-5 h-5 text-teal-600" />
         </div>
         <div className="min-w-0">
-          <p className="text-sm font-black text-slate-900">{file ? file.name : label}</p>
+          <p className="text-sm font-black text-slate-900 truncate">{file ? file.name : label}</p>
           <p className="text-xs font-bold text-slate-500 mt-1">{helper}</p>
         </div>
       </div>
@@ -368,8 +369,10 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
   const [videoFile, setVideoFile] = useState<File | null>(null);
   const [downloadableFile, setDownloadableFile] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLock = useRef(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
+  const [fieldErrors, setFieldErrors] = useState<Partial<Record<"title" | "video" | "article" | "file" | "thumbnail", string>>>({});
   const [uploadProgress, setUploadProgress] = useState(0);
   const articleBodyRef = useRef<HTMLTextAreaElement | null>(null);
   const statusRef = useRef<HTMLDivElement | null>(null);
@@ -437,6 +440,7 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
     setMode(next);
     setError("");
     setMessage("");
+    setFieldErrors({});
     setUploadProgress(0);
     if (next !== "Video") {
       setVideoFile(null);
@@ -489,40 +493,41 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
     video.src = objectUrl;
   }
 
-  function validateBeforeSubmit(): string | null {
-    if (!title.trim()) return "Please add a title before saving.";
+  function validateBeforeSubmit(): Partial<Record<"title" | "video" | "article" | "file" | "thumbnail", string>> {
+    const next: Partial<Record<"title" | "video" | "article" | "file" | "thumbnail", string>> = {};
+    if (!title.trim()) next.title = "Add a title before saving.";
     if (mode === "Video" && formMode === "create" && !videoFile) {
-      return "Please choose a video file to upload.";
+      next.video = "Choose a video file to upload.";
     }
     if (mode === "Article" && !articleBody.trim()) {
-      return "Article body is required.";
+      next.article = "Article body is required.";
     }
     if (mode === "File" && formMode === "create" && !downloadableFile) {
-      return "Please choose a PDF, ZIP or RAR file to upload.";
+      next.file = "Choose a PDF, ZIP, or RAR file to upload.";
     }
     if (mode === "File" && downloadableFile) {
       const ext = downloadableFile.name.split(".").pop()?.toLowerCase();
       if (ext !== fileSubtype) {
-        return `The selected file type (.${ext ?? "?"}) does not match the chosen "${fileSubtype.toUpperCase()}" sub-type.`;
+        next.file = `The selected file (.${ext ?? "?"}) does not match ${fileSubtype.toUpperCase()}.`;
       }
     }
     if ((mode === "Video" || mode === "Article") && formMode === "create" && !thumbnailFile) {
-      return "A thumbnail image is required for video and article content.";
+      next.thumbnail = "A thumbnail image is required for video and article content.";
     }
-    return null;
+    return next;
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (isSubmitting) return;
+    if (submitLock.current || isSubmitting) return;
+    submitLock.current = true;
 
-    const validationError = validateBeforeSubmit();
-    if (validationError) {
-      setError(validationError);
+    const nextErrors = validateBeforeSubmit();
+    if (Object.keys(nextErrors).length > 0) {
+      submitLock.current = false;
+      setFieldErrors(nextErrors);
+      setError(Object.values(nextErrors)[0] || "Please fix the highlighted fields.");
       setMessage("");
-      // Make the rejection visible — without this users in the wild
-      // (especially on long forms) miss the inline banner above and
-      // think the Create button silently failed.
       requestAnimationFrame(() => {
         statusRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       });
@@ -532,6 +537,7 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
     setIsSubmitting(true);
     setError("");
     setMessage("");
+    setFieldErrors({});
     setUploadProgress(0);
 
     const contentType = uiModeToContentType(mode);
@@ -661,6 +667,7 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
           : "Content could not be saved. Please try again."
       );
     } finally {
+      submitLock.current = false;
       setIsSubmitting(false);
     }
   }
@@ -691,7 +698,7 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
 
   return (
     <CreatorShell>
-      <form className="space-y-12 pb-10" onSubmit={handleSubmit}>
+      <form className="space-y-12 pb-10 min-w-0" onSubmit={handleSubmit}>
         {formMode === "create" ? (
           <DashboardHeader
             eyebrow="Content Studio"
@@ -705,19 +712,19 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
           />
         ) : (
           <MotionItem>
-            <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
-              <div className="flex items-center gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 sm:gap-6">
+              <div className="flex items-center gap-4 min-w-0">
                 <Link href="/creator/content" className="w-10 h-10 rounded-full bg-white border border-slate-200 flex items-center justify-center text-slate-500 hover:text-[var(--color-ink)] hover:border-slate-300 transition-all shadow-sm">
                   <ArrowLeft className="w-5 h-5" />
                 </Link>
-                <div>
+                <div className="min-w-0">
                   <h1 className="text-2xl font-black font-display text-[var(--color-ink)] tracking-tight mb-1">
                     Edit Content
                   </h1>
-                  <p className="text-sm font-medium text-slate-500">Editing &quot;{title || "Untitled Content"}&quot;</p>
+                  <p className="text-sm font-medium text-slate-500 truncate">Editing &quot;{title || "Untitled Content"}&quot;</p>
                 </div>
               </div>
-              <Button type="submit" variant="primary" disabled={isSubmitting}>
+              <Button type="submit" variant="primary" disabled={isSubmitting} className="w-full sm:w-auto">
                 {isSubmitting ? "Saving..." : "Save Changes"}
               </Button>
             </div>
@@ -735,12 +742,12 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
           </div>
         )}
 
-        <div className="grid lg:grid-cols-3 gap-10">
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
           <div className="lg:col-span-2 space-y-10">
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-8 shadow-sm">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 shadow-sm">
                 <h2 className="text-xl font-black font-display text-slate-900 mb-6">Select Content Type</h2>
-                <div className="grid sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-3 gap-2 sm:gap-4">
                   {[
                     { label: "Video" as const, icon: Video, helper: "Video Upload" },
                     { label: "Article" as const, icon: FileText, helper: "Blog Style Post" },
@@ -750,11 +757,11 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
                       key={item.label}
                       type="button"
                       onClick={() => handleModeChange(item.label)}
-                      className={cn("p-6 rounded-[2rem] border transition-all text-left group relative overflow-hidden", mode === item.label ? "border-teal-500 bg-teal-50/30 ring-1 ring-teal-500" : "border-slate-100 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50")}
+                      className={cn("p-3 sm:p-6 rounded-2xl sm:rounded-[2rem] border transition-all text-left group relative overflow-hidden", mode === item.label ? "border-teal-500 bg-teal-50/30 ring-1 ring-teal-500" : "border-slate-100 bg-slate-50/50 hover:border-slate-300 hover:bg-slate-50")}
                     >
-                      <item.icon className={cn("w-6 h-6 mb-4 transition-colors", mode === item.label ? "text-teal-600" : "text-slate-400 group-hover:text-slate-600")} />
-                      <h3 className={cn("font-bold mb-1", mode === item.label ? "text-slate-900" : "text-slate-600")}>{item.label}</h3>
-                      <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{item.helper}</p>
+                      <item.icon className={cn("w-5 h-5 sm:w-6 sm:h-6 mb-2 sm:mb-4 transition-colors", mode === item.label ? "text-teal-600" : "text-slate-400 group-hover:text-slate-600")} />
+                      <h3 className={cn("font-bold mb-1 text-sm sm:text-base", mode === item.label ? "text-slate-900" : "text-slate-600")}>{item.label}</h3>
+                      <p className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-tight hidden min-[380px]:block">{item.helper}</p>
                     </button>
                   ))}
                 </div>
@@ -762,18 +769,26 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
             </MotionReveal>
 
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
                 <h2 className="text-xl font-black font-display text-slate-900 mb-8">Content Details</h2>
                 <div className="space-y-8">
                   <div className="space-y-3">
                     <label className={labelClass}>Content Title</label>
                     <input
+                      id="content-title"
                       type="text"
                       placeholder="e.g. Masterclass: Advanced Techniques"
                       value={title}
-                      onChange={(e) => setTitle(e.target.value)}
-                      className={fieldClass}
+                      onChange={(e) => {
+                        setTitle(e.target.value);
+                        setFieldErrors((current) => ({ ...current, title: undefined }));
+                      }}
+                      aria-invalid={Boolean(fieldErrors.title)}
+                      className={cn(fieldClass, fieldErrors.title && "border-red-400")}
                     />
+                    {fieldErrors.title ? (
+                      <p className="text-xs font-medium text-red-600">{fieldErrors.title}</p>
+                    ) : null}
                   </div>
 
                   <div className="space-y-3">
@@ -813,11 +828,16 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
                         helper={`JPG, JPEG, PNG, WEBP, AVIF · max ${formatBytes(STORAGE_LIMITS.imageMaxBytes)}.`}
                         accept="image/jpeg,image/png,image/webp,image/avif"
                         file={thumbnailFile}
-                        onChange={setThumbnailFile}
+                        onChange={(file) => {
+                          setThumbnailFile(file);
+                          setFieldErrors((current) => ({ ...current, thumbnail: undefined }));
+                        }}
                       />
-                      {existingThumbnail && !thumbnailFile && (
+                      {fieldErrors.thumbnail ? (
+                        <p className="text-xs font-medium text-red-600">{fieldErrors.thumbnail}</p>
+                      ) : existingThumbnail && !thumbnailFile ? (
                         <p className={helperClass}>Existing thumbnail will be preserved if you do not upload a replacement.</p>
-                      )}
+                      ) : null}
                     </div>
                   )}
 
@@ -830,8 +850,14 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
                           helper={`MP4, MOV, WEBM · max ${formatBytes(STORAGE_LIMITS.videoMaxBytes)} · duration is detected automatically (YouTube-style).`}
                           accept="video/mp4,video/quicktime,video/webm"
                           file={videoFile}
-                          onChange={handleVideoFileChange}
+                          onChange={(file) => {
+                            handleVideoFileChange(file);
+                            setFieldErrors((current) => ({ ...current, video: undefined }));
+                          }}
                         />
+                        {fieldErrors.video ? (
+                          <p className="text-xs font-medium text-red-600">{fieldErrors.video}</p>
+                        ) : null}
                         {videoDurationLabel && (
                           <p className="text-xs font-black uppercase tracking-widest text-emerald-700">
                             Detected duration · {videoDurationLabel}
@@ -902,7 +928,10 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
                           <textarea
                             ref={articleBodyRef}
                             value={articleBody}
-                            onChange={(e) => setArticleBody(e.target.value)}
+                            onChange={(e) => {
+                              setArticleBody(e.target.value);
+                              setFieldErrors((current) => ({ ...current, article: undefined }));
+                            }}
                             onWheel={(e) => e.stopPropagation()}
                             onTouchMove={(e) => e.stopPropagation()}
                             placeholder={`# A great headline\n\nOpen with a strong hook so subscribers want to keep reading.\n\n## Section heading\n\n- Tell a clear story.\n- Use lists, **bold**, *italic*, and > quotes for emphasis.\n- Add [links](https://example.com) when you want to credit a source.`}
@@ -920,6 +949,9 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
                               Tip: Use the toolbar to insert headings, lists, and links.
                             </span>
                           </div>
+                          {fieldErrors.article ? (
+                            <p className="text-xs font-medium text-red-600 px-1">{fieldErrors.article}</p>
+                          ) : null}
                         </div>
                       </div>
                     </>
@@ -933,9 +965,16 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
                         helper={`PDF, ZIP, or RAR · max ${formatBytes(STORAGE_LIMITS.downloadableMaxBytes)}.`}
                         accept=".pdf,.zip,.rar,application/pdf,application/zip,application/x-zip-compressed,application/vnd.rar,application/x-rar-compressed"
                         file={downloadableFile}
-                        onChange={setDownloadableFile}
+                        onChange={(file) => {
+                          setDownloadableFile(file);
+                          setFieldErrors((current) => ({ ...current, file: undefined }));
+                        }}
                       />
-                      {initialContent?.fileUrl && !downloadableFile && <p className={helperClass}>Existing file will be preserved.</p>}
+                      {fieldErrors.file ? (
+                        <p className="text-xs font-medium text-red-600">{fieldErrors.file}</p>
+                      ) : initialContent?.fileUrl && !downloadableFile ? (
+                        <p className={helperClass}>Existing file will be preserved.</p>
+                      ) : null}
                     </div>
                   )}
                 </div>
@@ -945,7 +984,7 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
 
           <div className="lg:col-span-1 space-y-10">
             <MotionReveal className="sticky top-24 space-y-10">
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
                 <h3 className="text-xl font-black font-display text-slate-900 mb-8">Access Control</h3>
                 <div className="space-y-6">
                   <div className="space-y-3">
@@ -974,7 +1013,7 @@ export function ContentForm({ mode: formMode, initialContent, workspaceDefaults 
                 </div>
               </div>
 
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
                 <h3 className="text-[10px] font-black text-slate-700 uppercase tracking-[0.25em] mb-6 block">Subscriber Preview</h3>
                 <div className="rounded-[2rem] border border-slate-100 overflow-hidden shadow-[0_4px_20px_rgba(0,0,0,0.02)] group">
                   <div className="aspect-video bg-slate-50 flex items-center justify-center relative overflow-hidden">

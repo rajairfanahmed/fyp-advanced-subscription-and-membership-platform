@@ -88,9 +88,19 @@ export default function AdminAnalyticsPage() {
 
   const metricCards = [
     {
-      label: "Platform MRR",
-      value: metrics ? formatCurrencyCents(metrics.platformMrrCents) : "—",
+      label: "Gross MRR",
+      value: metrics ? formatCurrencyCents(metrics.grossMrrCents) : "—",
       icon: <DollarSign className="w-6 h-6 text-emerald-600" />,
+    },
+    {
+      label: "Collected (30d)",
+      value: metrics ? formatCurrencyCents(metrics.collected30dCents) : "—",
+      icon: <DollarSign className="w-6 h-6 text-sky-600" />,
+    },
+    {
+      label: "Platform take (30d)",
+      value: metrics ? formatCurrencyCents(metrics.platformTakeCents) : "—",
+      icon: <DollarSign className="w-6 h-6 text-violet-600" />,
     },
     {
       label: "Active Subscribers",
@@ -179,7 +189,7 @@ export default function AdminAnalyticsPage() {
         </MotionItem>
 
         <MotionItem>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-6">
             {metricCards.map((metric, i) => (
               <div key={i} className="bg-white rounded-[2rem] border border-slate-200 p-8 shadow-sm">
                 <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center border border-slate-100 mb-6 shadow-sm">
@@ -199,7 +209,7 @@ export default function AdminAnalyticsPage() {
           <MotionReveal>
             <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm h-full flex flex-col">
               <div className="flex items-center justify-between mb-10">
-                <h2 className="text-xl font-black font-display text-slate-900 tracking-tight">Revenue Trend</h2>
+                <h2 className="text-xl font-black font-display text-slate-900 tracking-tight">Collected revenue</h2>
                 <span className="bg-slate-50 border border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest rounded-xl px-4 py-2">
                   {rangeLabel}
                 </span>

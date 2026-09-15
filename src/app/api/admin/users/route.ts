@@ -1,16 +1,24 @@
 import { NextResponse, type NextRequest } from "next/server";
 
+import { parseAdminListQuery } from "@/lib/auth/admin-list-query";
+import { adminErrorJson } from "@/lib/auth/admin-http";
 import { requireAdminContext } from "@/lib/auth/require-admin";
 import { getAdminUsers } from "@/lib/mongodb/admin-stats";
 import { csvHeaders, csvTimestamp, toCsv } from "@/lib/csv";
 
+const ROLES = new Set(["all", "subscriber", "creator", "admin"]);
+
 export async function GET(req: NextRequest) {
   try {
     await requireAdminContext();
-    const data = await getAdminUsers();
-    const format = req.nextUrl.searchParams.get("format")?.toLowerCase();
+    const list = parseAdminListQuery(req.nextUrl.searchParams);
+    const roleRaw = (req.nextUrl.searchParams.get("role") || "all").toLowerCase();
+    const role = ROLES.has(roleRaw)
+      ? (roleRaw as "all" | "subscriber" | "creator" | "admin")
+      : "all";
+    const data = await getAdminUsers(list, role);
 
-    if (format === "csv") {
+    if (list.csv) {
       const csv = toCsv(
         ["ID", "Clerk ID", "Name", "Email", "Role", "Highest Plan", "Status", "Joined"],
         data.users.map((u) => ({
@@ -35,15 +43,7 @@ export async function GET(req: NextRequest) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load users.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:users]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to load users.");
   }
 }

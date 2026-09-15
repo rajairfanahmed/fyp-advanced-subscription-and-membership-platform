@@ -186,7 +186,7 @@ export default function AccountPage() {
               <Badge variant="default">Account Settings</Badge>
             </MotionItem>
             <MotionItem>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
                 Profile & <span className="text-gradient-primary">Preferences</span>
               </h1>
             </MotionItem>
@@ -205,11 +205,11 @@ export default function AccountPage() {
             Loading account profile...
           </div>
         ) : (
-          <div className="grid lg:grid-cols-3 gap-10">
+          <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
             <div className="lg:col-span-2 space-y-10">
               <MotionReveal>
                 <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-8 border-b border-slate-100 flex items-center gap-4">
+                  <div className="p-5 sm:p-8 border-b border-slate-100 flex items-center gap-4">
                     <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
                       <User className="w-6 h-6 text-slate-400" />
                     </div>
@@ -219,7 +219,7 @@ export default function AccountPage() {
                     </div>
                   </div>
 
-                  <form className="p-8 space-y-6" onSubmit={handleProfileSubmit}>
+                  <form className="p-5 sm:p-8 space-y-6" onSubmit={handleProfileSubmit}>
                     {(error || message) && (
                       <div className={`p-4 rounded-xl text-sm font-bold border ${error ? "bg-red-50 border-red-200 text-red-700" : "bg-emerald-50 border-emerald-200 text-emerald-700"}`}>
                         {error || message}
@@ -317,7 +317,7 @@ export default function AccountPage() {
 
               <MotionReveal>
                 <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-                  <div className="p-8 border-b border-slate-100 flex items-center gap-4">
+                  <div className="p-5 sm:p-8 border-b border-slate-100 flex items-center gap-4">
                     <div className="w-12 h-12 rounded-full bg-slate-50 border border-slate-200 flex items-center justify-center">
                       <Shield className="w-6 h-6 text-slate-400" />
                     </div>

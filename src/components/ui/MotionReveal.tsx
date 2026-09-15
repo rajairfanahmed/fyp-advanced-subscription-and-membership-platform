@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, Variants } from "framer-motion";
+import { usePathname } from "next/navigation";
 import { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +16,23 @@ interface MotionRevealProps {
   instant?: boolean;
 }
 
+const INSTANT_PREFIXES = [
+  "/admin",
+  "/creator",
+  "/library",
+  "/billing",
+  "/subscription",
+  "/notifications",
+  "/account",
+];
+
+function forceInstant(pathname: string | null) {
+  if (!pathname) return false;
+  return INSTANT_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`)
+  );
+}
+
 export function MotionReveal({
   children,
   className,
@@ -24,7 +42,8 @@ export function MotionReveal({
   staggerChildren,
   instant = false,
 }: MotionRevealProps) {
-  if (instant) {
+  const pathname = usePathname();
+  if (instant || forceInstant(pathname)) {
     const instantContainer: Variants = {
       visible: {
         opacity: 1,
@@ -37,7 +56,7 @@ export function MotionReveal({
     };
     return (
       <motion.div
-        className={cn(className)}
+        className={cn("min-w-0 max-w-full", className)}
         variants={instantContainer}
         initial="visible"
         animate="visible"
@@ -68,7 +87,7 @@ export function MotionReveal({
       initial="hidden"
       whileInView="visible"
       viewport={{ once: true, margin: "50px" }}
-      className={cn(className)}
+      className={cn("min-w-0 max-w-full", className)}
     >
       {children}
     </motion.div>
@@ -98,7 +117,7 @@ export function MotionItem({
   };
 
   return (
-    <motion.div id={id} variants={itemVariants} className={cn(className)}>
+    <motion.div id={id} variants={itemVariants} className={cn("min-w-0 max-w-full", className)}>
       {children}
     </motion.div>
   );

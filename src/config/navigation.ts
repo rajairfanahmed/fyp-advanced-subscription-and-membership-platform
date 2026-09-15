@@ -36,7 +36,7 @@ export const footerLinkGroups: FooterLinkGroup[] = [
     links: [
       { label: "Pricing", href: "/pricing" },
       { label: "Content Library", href: "/content-preview" },
-      { label: "Member Dashboard", href: "/library" },
+      { label: "Member Dashboard", href: "/login?redirect_url=%2Flibrary" },
     ],
   },
   {

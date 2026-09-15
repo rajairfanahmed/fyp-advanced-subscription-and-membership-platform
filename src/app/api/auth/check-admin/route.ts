@@ -1,25 +1,32 @@
-import { NextRequest, NextResponse } from "next/server";
+import { auth } from "@clerk/nextjs/server";
+import { NextResponse } from "next/server";
 
 import { isAdminEmail } from "@/lib/auth/roles";
+import { resolveClerkSessionUser } from "@/lib/auth/clerk-session-user";
 
 /**
- * Public endpoint that tells the client whether a given email is on
- * the admin allowlist (`ADMIN_EMAILS` server env). The sign-up form
- * uses this to skip the Subscriber/Creator role picker for admin
- * accounts — admin role is granted by email allowlist, not by Clerk
- * metadata, so forcing the picker would just confuse admins.
+ * GET /api/auth/check-admin
  *
- * Read-only and rate-limit-friendly: a single email -> boolean lookup
- * with no PII leakage (the request includes the email, the response
- * is a boolean). Listed in `isPublicRoute` via `/api/auth/(.*)`.
+ * Session-only. Returns whether the *authenticated caller* is on ADMIN_EMAILS.
+ * Query-string emails are ignored — this must never be an allowlist oracle.
  */
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(req: NextRequest) {
-  const email = (req.nextUrl.searchParams.get("email") || "").trim().toLowerCase();
-  if (!email || !email.includes("@")) {
-    return NextResponse.json({ isAdmin: false });
+export async function GET() {
+  const { userId } = await auth();
+  if (!userId) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return NextResponse.json({ isAdmin: isAdminEmail(email) });
+
+  try {
+    const user = await resolveClerkSessionUser();
+    const email = user?.email ?? "";
+    return NextResponse.json(
+      { isAdmin: Boolean(email && isAdminEmail(email)) },
+      { status: 200, headers: { "Cache-Control": "no-store" } }
+    );
+  } catch {
+    return NextResponse.json({ isAdmin: false }, { status: 200 });
+  }
 }

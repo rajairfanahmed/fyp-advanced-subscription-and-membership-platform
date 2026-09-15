@@ -49,6 +49,32 @@ function parseContentDispositionFileName(header: string | null) {
   return ascii?.[1]?.trim().replace(/^"+|"+$/g, "") || "";
 }
 
+function embedUrlFromExternal(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    if (host === "youtu.be") {
+      const id = parsed.pathname.split("/").filter(Boolean)[0];
+      return id ? `https://www.youtube.com/embed/${id}` : null;
+    }
+    if (host === "youtube.com" || host.endsWith(".youtube.com")) {
+      const id = parsed.searchParams.get("v");
+      if (id) return `https://www.youtube.com/embed/${id}`;
+      if (parsed.pathname.includes("/embed/")) return parsed.toString();
+      const shorts = parsed.pathname.match(/\/shorts\/([^/]+)/);
+      if (shorts?.[1]) return `https://www.youtube.com/embed/${shorts[1]}`;
+    }
+    if (host === "player.vimeo.com") return parsed.toString();
+    if (host === "vimeo.com") {
+      const id = parsed.pathname.split("/").filter(Boolean)[0];
+      if (id && /^\d+$/.test(id)) return `https://player.vimeo.com/video/${id}`;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
 export default function ContentDetailPage() {
   const params = useParams<{ contentId: string }>();
   const [content, setContent] = useState<ContentResponse | null>(null);
@@ -66,6 +92,7 @@ export default function ContentDetailPage() {
     accessLevel: "free" | "basic" | "premium";
     windowEnd: string;
   } | null>(null);
+  const [externalPlaybackUrl, setExternalPlaybackUrl] = useState("");
   const watchEventReportedRef = React.useRef(false);
 
   useEffect(() => {
@@ -127,10 +154,32 @@ export default function ContentDetailPage() {
     };
   }, [params.contentId]);
 
+  useEffect(() => {
+    if (!content || content.contentType !== "video") return;
+    if (content.accessGranted === false) return;
+    if (content.videoProvider !== "external") return;
+    let cancelled = false;
+    fetch(`/api/content/${encodeURIComponent(content.id)}/playback`, { cache: "no-store" })
+      .then(async (res) => {
+        const data = (await res.json().catch(() => ({}))) as { kind?: string; url?: string };
+        if (!cancelled && data.kind === "external" && data.url) {
+          setExternalPlaybackUrl(data.url);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [content]);
+
   const isLocked = content
     ? content.accessGranted === false ||
       (content.accessGranted === undefined && content.requiredPlan !== "free")
     : false;
+  const externalEmbed =
+    content && !isLocked && externalPlaybackUrl
+      ? embedUrlFromExternal(externalPlaybackUrl)
+      : null;
 
   const upgradePlan = useMemo(() => {
     if (!content || !isLocked || creatorPlans.length === 0) return null;
@@ -334,8 +383,8 @@ export default function ContentDetailPage() {
           </Link>
         </MotionReveal>
 
-        <div className="grid lg:grid-cols-3 gap-10 items-start">
-          <div className="lg:col-span-2 space-y-8">
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-10 items-start">
+          <div className="lg:col-span-2 space-y-8 min-w-0">
             <MotionReveal>
               <div className="w-full aspect-video bg-slate-900 rounded-3xl overflow-hidden relative shadow-2xl group flex items-center justify-center">
                 {content.thumbnailUrl && (
@@ -348,15 +397,37 @@ export default function ContentDetailPage() {
                     <p className="font-black">Upgrade required</p>
                   </div>
                 )}
-                {content.contentType === "video" && !isLocked && content.videoUrl ? (
+                {content.contentType === "video" && !isLocked && content.videoProvider !== "external" ? (
                   <video
-                    src={content.videoUrl}
+                    src={`/api/content/${encodeURIComponent(content.id)}/playback`}
                     controls
+                    playsInline
                     poster={content.thumbnailUrl}
                     onTimeUpdate={handleVideoTimeUpdate}
                     onEnded={handleVideoEnded}
                     className="relative z-10 w-full h-full object-cover"
                   />
+                ) : content.contentType === "video" && !isLocked && externalPlaybackUrl ? (
+                  externalEmbed ? (
+                    <iframe
+                      title={content.title}
+                      src={externalEmbed}
+                      className="relative z-10 w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                      referrerPolicy="strict-origin-when-cross-origin"
+                    />
+                  ) : (
+                    <video
+                      src={externalPlaybackUrl}
+                      controls
+                      playsInline
+                      poster={content.thumbnailUrl}
+                      onTimeUpdate={handleVideoTimeUpdate}
+                      onEnded={handleVideoEnded}
+                      className="relative z-10 w-full h-full object-cover"
+                    />
+                  )
                 ) : content.contentType === "video" ? (
                   <button className="relative z-10 w-20 h-20 rounded-full bg-white/10 backdrop-blur-md border border-white/20 flex items-center justify-center group-hover:scale-110 group-hover:bg-white/20 transition-all duration-300">
                     <Play className="w-8 h-8 text-white ml-1" fill="currentColor" />
@@ -378,7 +449,7 @@ export default function ContentDetailPage() {
                 <Badge variant="emerald">{typeLabel(content)}</Badge>
                 <Badge variant={content.requiredPlan === "premium" ? "sky" : "default"}>{planLabel(content.requiredPlan)} Access</Badge>
               </div>
-              <h1 className="text-3xl md:text-4xl font-black font-display text-[var(--color-ink)] mb-3 leading-tight">
+              <h1 className="text-2xl sm:text-3xl md:text-4xl font-black font-display text-[var(--color-ink)] mb-3 leading-tight break-words">
                 {content.title}
               </h1>
               <div className="flex items-center gap-3 text-[var(--color-muted)] font-medium">
@@ -434,25 +505,26 @@ export default function ContentDetailPage() {
                       : `${quota.remaining ?? 0} of ${quota.monthlyLimit} downloads remaining this month.`}
                   </p>
                 )}
-                <div className="flex items-center justify-between p-4 rounded-2xl border border-slate-100 bg-slate-50 hover:border-slate-200 transition-colors group">
-                  <div className="flex items-center gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 rounded-2xl border border-slate-100 bg-slate-50">
+                  <div className="flex items-center gap-4 min-w-0">
                     <div className="w-12 h-12 rounded-xl bg-white shadow-sm flex items-center justify-center shrink-0 text-emerald-500">
                       <FileArchive className="w-6 h-6" />
                     </div>
-                    <div>
-                      <h4 className="font-bold text-[var(--color-ink)] group-hover:text-emerald-600 transition-colors">{content.title}</h4>
+                    <div className="min-w-0">
+                      <h4 className="font-bold text-[var(--color-ink)] break-words">{content.title}</h4>
                       <p className="text-sm font-medium text-slate-500">{typeLabel(content)} File {content.fileSizeLabel ? `- ${content.fileSizeLabel}` : ""}</p>
                     </div>
                   </div>
-                  <button
+                  <Button
                     type="button"
+                    variant="primary"
                     onClick={handleDownload}
                     disabled={downloadPending}
-                    aria-label="Download file"
-                    className="w-10 h-10 rounded-full bg-white border border-slate-200 shadow-sm flex items-center justify-center text-slate-400 hover:text-emerald-600 hover:border-emerald-200 transition-all shrink-0 disabled:opacity-60 disabled:cursor-not-allowed"
+                    className="w-full sm:w-auto shrink-0"
+                    icon={<Download className="w-4 h-4 ml-1" />}
                   >
-                    <Download className="w-5 h-5" />
-                  </button>
+                    {downloadPending ? "Preparing…" : "Download"}
+                  </Button>
                 </div>
               </MotionReveal>
             )}
@@ -518,7 +590,7 @@ export default function ContentDetailPage() {
             )}
           </div>
 
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 min-w-0">
             <div className="sticky top-24 space-y-6">
               <MotionReveal>
                 <h3 className="text-xl font-black font-display text-[var(--color-ink)] mb-6">Up Next</h3>

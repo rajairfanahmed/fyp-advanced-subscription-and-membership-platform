@@ -1,6 +1,8 @@
+import { isRecordId } from "@/lib/db/ids";
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requireAdminContext } from "@/lib/auth/require-admin";
+import { adminErrorJson } from "@/lib/auth/admin-http";
+import { auditAdmin, requireAdminMutation } from "@/lib/auth/require-admin";
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import { ContentModel } from "@/lib/mongodb/models";
 import { recalcCreatorContentCount } from "@/lib/mongodb/creator-counts";
@@ -22,8 +24,11 @@ export async function PATCH(
   context: { params: Promise<{ contentId: string }> }
 ) {
   try {
-    await requireAdminContext();
+    const ctx = await requireAdminMutation(req);
     const { contentId } = await context.params;
+    if (!isRecordId(contentId)) {
+      return NextResponse.json({ error: "Invalid content id." }, { status: 400 });
+    }
 
     let body: unknown = {};
     try {
@@ -91,6 +96,13 @@ export async function PATCH(
       }
     }
 
+    await auditAdmin(ctx, req, {
+      action: `content.${action}`,
+      targetType: "content",
+      targetId: before._id.toString(),
+      payload: { previousStatus, status: before.status, title: before.title },
+    });
+
     return NextResponse.json(
       {
         ok: true,
@@ -100,15 +112,7 @@ export async function PATCH(
       { status: 200 }
     );
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to update content.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:content:patch]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to update content.");
   }
 }

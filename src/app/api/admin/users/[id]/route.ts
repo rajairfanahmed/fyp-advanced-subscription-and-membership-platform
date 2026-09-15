@@ -1,17 +1,19 @@
 import { NextResponse, type NextRequest } from "next/server";
 
-import { requireAdminContext } from "@/lib/auth/require-admin";
 import {
-  getAdminUserDetail,
-  updateAdminUserStatus,
-} from "@/lib/mongodb/admin-stats";
+  applyAdminAccountStatus,
+  deleteAdminUser,
+} from "@/lib/account/admin-lifecycle";
+import { adminErrorJson } from "@/lib/auth/admin-http";
+import {
+  assertConfirmationPhrase,
+  auditAdmin,
+  confirmationPhraseOf,
+  requireAdminContext,
+  requireAdminMutation,
+} from "@/lib/auth/require-admin";
+import { getAdminUserDetail } from "@/lib/mongodb/admin-stats";
 
-/**
- * GET /api/admin/users/[id]
- * Returns full user detail with subscriptions, payments, and rolled
- * up metrics. The `id` may be either the Mongo `_id` of the
- * UserProfile or the Clerk user id — both resolve.
- */
 export async function GET(
   _req: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -28,34 +30,17 @@ export async function GET(
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load user.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:user:get]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to load user.");
   }
 }
 
-/**
- * PATCH /api/admin/users/[id]
- * Body: { accountStatus: "active" | "suspended" }
- *
- * Suspend or restore a user account. The auth/identity layer (Clerk)
- * isn't touched here — only our `UserProfile.accountStatus`. Suspended
- * users can still sign in, but checkout, subscribe, download, uploads,
- * and creator mutations reject the account until it is restored.
- */
 export async function PATCH(
   req: NextRequest,
   context: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAdminContext();
+    const ctx = await requireAdminMutation(req);
     const { id } = await context.params;
 
     let body: unknown = {};
@@ -76,24 +61,70 @@ export async function PATCH(
       );
     }
 
-    const data = await updateAdminUserStatus({
-      userIdOrClerkId: id,
-      accountStatus: wantStatus,
-    });
+    const data = await getAdminUserDetail(id);
     if (!data) {
       return NextResponse.json({ error: "User not found." }, { status: 404 });
     }
-    return NextResponse.json(data, { status: 200 });
+    if (wantStatus === "suspended") {
+      assertConfirmationPhrase(
+        confirmationPhraseOf(body),
+        data.user.email,
+        "Type the account email to suspend."
+      );
+    }
+
+    const updated = await applyAdminAccountStatus({
+      ctx,
+      userIdOrClerkId: id,
+      accountStatus: wantStatus,
+    });
+    await auditAdmin(ctx, req, {
+      action: wantStatus === "suspended" ? "user.suspend" : "user.restore",
+      targetType: "user",
+      targetId: updated.user.clerkUserId,
+      payload: { email: updated.user.email, accountStatus: wantStatus },
+    });
+    return NextResponse.json(updated, { status: 200 });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to update user.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:user:patch]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to update user.");
+  }
+}
+
+export async function DELETE(
+  req: NextRequest,
+  context: { params: Promise<{ id: string }> }
+) {
+  try {
+    const ctx = await requireAdminMutation(req);
+    const { id } = await context.params;
+    let body: unknown = {};
+    try {
+      body = await req.json();
+    } catch {
+      body = {};
+    }
+
+    const data = await getAdminUserDetail(id);
+    if (!data) {
+      return NextResponse.json({ error: "User not found." }, { status: 404 });
+    }
+    assertConfirmationPhrase(
+      confirmationPhraseOf(body),
+      data.user.email,
+      "Type the account email to delete."
+    );
+
+    const result = await deleteAdminUser({ ctx, userIdOrClerkId: id });
+    await auditAdmin(ctx, req, {
+      action: "user.delete",
+      targetType: "user",
+      targetId: result.clerkUserId,
+      payload: { email: result.email, report: result.report },
+    });
+    return NextResponse.json(result, { status: 200 });
+  } catch (error) {
+    console.error("[admin:user:delete]", error);
+    return adminErrorJson(error, "Failed to delete user.");
   }
 }

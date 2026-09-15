@@ -26,9 +26,12 @@ export async function GET(req: NextRequest) {
         "Email",
         "Plan",
         "Access Level",
+        "Price Monthly",
         "Status",
+        "Lifecycle",
+        "Days Remaining",
+        "Quota",
         "Renewal",
-        "Engagement",
         "Started At",
       ];
       const rows = result.subscribers.map((row) => ({
@@ -37,9 +40,12 @@ export async function GET(req: NextRequest) {
         Email: row.email,
         Plan: row.plan,
         "Access Level": row.accessLevel,
+        "Price Monthly": row.priceMonthly,
         Status: row.status,
+        Lifecycle: row.lifecycle,
+        "Days Remaining": row.daysRemaining ?? "",
+        Quota: row.quotaLabel,
         Renewal: row.renewalLabel,
-        Engagement: row.engagement,
         "Started At": row.startedAt,
       }));
       const csv = toCsv(headers, rows);

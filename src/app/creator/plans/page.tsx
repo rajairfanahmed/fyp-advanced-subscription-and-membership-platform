@@ -15,6 +15,13 @@ import {
   Trash2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { serializeTierLimits } from "@/config/tier-limits";
+import {
+  fetchWithTimeout,
+  readJsonSafe,
+  RequestTimeoutError,
+} from "@/lib/http/fetch-timeout";
+import { useInFlightLock } from "@/lib/ui/useInFlightLock";
 import type { PlanAccessLevel, PlanResponse } from "@/types/plan";
 
 const ACCESS_ICON: Record<PlanAccessLevel, React.ReactNode> = {
@@ -71,7 +78,13 @@ export default function PlansPage() {
   const [featuresText, setFeaturesText] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const mutationLock = useInFlightLock();
   const [isCreating, setIsCreating] = useState(false);
+  const [showExtraForm, setShowExtraForm] = useState(false);
+  const [extraName, setExtraName] = useState("");
+  const [extraAccess, setExtraAccess] = useState<PlanAccessLevel>("basic");
+  const [extraPrice, setExtraPrice] = useState(9);
+  const [priceError, setPriceError] = useState("");
   const [isSyncingStripe, setIsSyncingStripe] = useState(false);
   const [message, setMessage] = useState("");
   const [error, setError] = useState("");
@@ -135,15 +148,26 @@ export default function PlansPage() {
     setEditingId(planId);
     setMessage("");
     setError("");
+    setPriceError("");
+    setShowExtraForm(false);
+  }
+
+  function validatePaidPrice(value: number): string {
+    if (!Number.isFinite(value)) return "Enter a valid monthly price.";
+    if (value < 1) return "Paid plans must be at least $1.00 per month.";
+    if (value > 9999) return "Monthly price cannot exceed $9,999.00.";
+    return "";
   }
 
   async function handleSave(e?: React.FormEvent) {
     if (e) e.preventDefault();
     if (!editingPlan) return;
+    if (!mutationLock.begin()) return;
 
     setIsSaving(true);
     setMessage("");
     setError("");
+    setPriceError("");
 
     try {
       const payload: Record<string, unknown> = {
@@ -152,15 +176,22 @@ export default function PlansPage() {
         features: textToFeatures(featuresText),
       };
       if (!isFreePlan) {
-        payload.priceMonthly = Number.isFinite(priceMonthly) ? priceMonthly : 0;
+        const nextPrice = Number.isFinite(priceMonthly) ? priceMonthly : 0;
+        const priceIssue = validatePaidPrice(nextPrice);
+        if (priceIssue) {
+          setPriceError(priceIssue);
+          throw new Error(priceIssue);
+        }
+        payload.priceMonthly = nextPrice;
       }
 
-      const res = await fetch(`/api/plans/${editingPlan.id}`, {
+      const res = await fetchWithTimeout(`/api/plans/${editingPlan.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        timeoutMs: 15_000,
       });
-      const data = (await res.json()) as { plan?: PlanResponse; error?: string };
+      const data = await readJsonSafe<{ plan?: PlanResponse; error?: string }>(res);
       if (!res.ok || !data.plan) throw new Error(data.error || "Plan could not be saved.");
 
       setPlans((current) =>
@@ -168,26 +199,35 @@ export default function PlansPage() {
       );
       setMessage(`${data.plan.name} saved.`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Plan could not be saved.");
+      setError(
+        err instanceof RequestTimeoutError
+          ? "The plan could not be saved because the request timed out. Try again."
+          : err instanceof Error
+            ? err.message
+            : "Plan could not be saved."
+      );
     } finally {
       setIsSaving(false);
+      mutationLock.end();
     }
   }
 
   async function toggleActive() {
     if (!editingPlan) return;
+    if (!mutationLock.begin()) return;
 
     setIsSaving(true);
     setMessage("");
     setError("");
 
     try {
-      const res = await fetch(`/api/plans/${editingPlan.id}`, {
+      const res = await fetchWithTimeout(`/api/plans/${editingPlan.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ isActive: !editingPlan.isActive }),
+        timeoutMs: 15_000,
       });
-      const data = (await res.json()) as { plan?: PlanResponse; error?: string };
+      const data = await readJsonSafe<{ plan?: PlanResponse; error?: string }>(res);
       if (!res.ok || !data.plan)
         throw new Error(data.error || "Plan status could not be updated.");
 
@@ -205,6 +245,7 @@ export default function PlansPage() {
       );
     } finally {
       setIsSaving(false);
+      mutationLock.end();
     }
   }
 
@@ -215,19 +256,21 @@ export default function PlansPage() {
       );
       if (!ok) return;
     }
+    if (!mutationLock.begin()) return;
 
     setIsSaving(true);
     setMessage("");
     setError("");
 
     try {
-      const res = await fetch(`/api/plans/${planId}?hard=true`, {
+      const res = await fetchWithTimeout(`/api/plans/${planId}?hard=true`, {
         method: "DELETE",
+        timeoutMs: 15_000,
       });
-      const data = (await res.json().catch(() => ({}))) as {
+      const data = await readJsonSafe<{
         deleted?: boolean;
         error?: string;
-      };
+      }>(res);
       if (!res.ok || !data.deleted) {
         throw new Error(data.error || "Plan could not be deleted.");
       }
@@ -240,15 +283,20 @@ export default function PlansPage() {
       setError(err instanceof Error ? err.message : "Plan could not be deleted.");
     } finally {
       setIsSaving(false);
+      mutationLock.end();
     }
   }
 
   async function handleSyncStripe() {
+    if (!mutationLock.begin()) return;
     setIsSyncingStripe(true);
     setMessage("");
     setError("");
     try {
-      const res = await fetch("/api/creator/stripe-sync", { method: "POST" });
+      const res = await fetchWithTimeout("/api/creator/stripe-sync", {
+        method: "POST",
+        timeoutMs: 30_000,
+      });
       const data = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         synced?: number;
@@ -271,46 +319,82 @@ export default function PlansPage() {
           : "Paid plans are ready for checkout."
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not connect checkout.");
+      setError(
+        err instanceof RequestTimeoutError
+          ? "Connecting checkout timed out. Try again."
+          : err instanceof Error
+            ? err.message
+            : "Could not connect checkout."
+      );
     } finally {
       setIsSyncingStripe(false);
+      mutationLock.end();
     }
   }
 
-  async function handleCreatePlan() {
+  async function handleCreatePlan(e?: React.FormEvent) {
+    if (e) e.preventDefault();
+    const trimmedName = extraName.trim();
+    if (!trimmedName) {
+      setError("Give the extra plan a name.");
+      return;
+    }
+    if (extraAccess !== "free") {
+      const priceIssue = validatePaidPrice(extraPrice);
+      if (priceIssue) {
+        setPriceError(priceIssue);
+        setError(priceIssue);
+        return;
+      }
+    }
+    if (!mutationLock.begin()) return;
+
     setIsCreating(true);
     setMessage("");
     setError("");
+    setPriceError("");
 
     try {
-      const res = await fetch("/api/plans", {
+      const res = await fetchWithTimeout("/api/plans", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          name: "Extra plan",
+          name: trimmedName.slice(0, 80),
           description: "",
-          priceMonthly: 9,
-          accessLevel: "premium",
+          priceMonthly: extraAccess === "free" ? 0 : extraPrice,
+          accessLevel: extraAccess,
           features: [],
           isActive: false,
         }),
+        timeoutMs: 15_000,
       });
-      const data = (await res.json()) as { plan?: PlanResponse; error?: string };
+      const data = await readJsonSafe<{ plan?: PlanResponse; error?: string }>(res);
       if (!res.ok || !data.plan) throw new Error(data.error || "Plan could not be created.");
 
       setPlans((current) => [...current, data.plan!]);
       setEditingId(data.plan.id);
+      setShowExtraForm(false);
+      setExtraName("");
+      setExtraAccess("basic");
+      setExtraPrice(9);
       setMessage("Extra plan created. Edit the details, then turn it on when you are ready.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Plan could not be created.");
+      setError(
+        err instanceof RequestTimeoutError
+          ? "The plan could not be created because the request timed out. Try again."
+          : err instanceof Error
+            ? err.message
+            : "Plan could not be created."
+      );
     } finally {
       setIsCreating(false);
+      mutationLock.end();
     }
   }
 
   return (
     <CreatorShell>
-      <div className="space-y-8">
+      <div className="space-y-8 min-w-0">
         <DashboardHeader
           eyebrow="Membership"
           title="Subscription Plans"
@@ -319,7 +403,12 @@ export default function PlansPage() {
             <Button
               variant="primary"
               icon={<PlusCircle className="w-4 h-4 ml-1" />}
-              onClick={handleCreatePlan}
+              onClick={() => {
+                setShowExtraForm(true);
+                setError("");
+                setMessage("");
+                setPriceError("");
+              }}
               disabled={isCreating || isLoading}
             >
               {isCreating ? "Adding…" : "Add extra plan"}
@@ -341,27 +430,124 @@ export default function PlansPage() {
           </div>
         )}
 
+        {showExtraForm && (
+          <form
+            onSubmit={handleCreatePlan}
+            className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8 space-y-6 min-w-0"
+          >
+            <div>
+              <h2 className="text-xl font-black font-display text-slate-900">Add extra plan</h2>
+              <p className="text-sm font-medium text-slate-500 mt-1">
+                Choose the access tier first. The platform quotas for that tier stay fixed even if you write different marketing copy.
+              </p>
+            </div>
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              <div className="space-y-2">
+                <label htmlFor="extra-plan-name" className={labelClass}>
+                  Plan name
+                </label>
+                <input
+                  id="extra-plan-name"
+                  type="text"
+                  value={extraName}
+                  onChange={(e) => setExtraName(e.target.value)}
+                  required
+                  maxLength={80}
+                  placeholder="e.g. Studio Plus"
+                  className={fieldClass}
+                />
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="extra-plan-tier" className={labelClass}>
+                  Access tier
+                </label>
+                <select
+                  id="extra-plan-tier"
+                  value={extraAccess}
+                  onChange={(e) => setExtraAccess(e.target.value as PlanAccessLevel)}
+                  className={cn(fieldClass, "appearance-none")}
+                >
+                  <option value="free">Free</option>
+                  <option value="basic">Basic</option>
+                  <option value="premium">Premium</option>
+                </select>
+              </div>
+              <div className="space-y-2">
+                <label htmlFor="extra-plan-price" className={labelClass}>
+                  Monthly price
+                </label>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-sm font-black text-slate-400">
+                    $
+                  </span>
+                  <input
+                    id="extra-plan-price"
+                    type="number"
+                    inputMode="decimal"
+                    min={extraAccess === "free" ? 0 : 1}
+                    step="0.01"
+                    value={extraAccess === "free" ? 0 : extraPrice}
+                    onChange={(e) => {
+                      setExtraPrice(Number(e.target.value) || 0);
+                      setPriceError("");
+                    }}
+                    disabled={extraAccess === "free"}
+                    className={cn(
+                      fieldClass,
+                      "pl-8",
+                      extraAccess === "free" && "bg-slate-50 text-slate-400 cursor-not-allowed",
+                      priceError && extraAccess !== "free" && "border-red-400"
+                    )}
+                  />
+                </div>
+                {priceError && extraAccess !== "free" ? (
+                  <p className="text-xs font-medium text-red-600">{priceError}</p>
+                ) : (
+                  <p className="text-xs font-medium text-slate-500">
+                    {extraAccess === "free" ? "Free stays at $0." : "Minimum $1.00 for paid plans."}
+                  </p>
+                )}
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Button type="submit" variant="primary" disabled={isCreating}>
+                {isCreating ? "Adding…" : "Create extra plan"}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowExtraForm(false);
+                  setPriceError("");
+                }}
+              >
+                Cancel
+              </Button>
+            </div>
+          </form>
+        )}
+
         {isLoading ? (
-          <div className="bg-white rounded-[2rem] border border-slate-200 p-10 text-sm font-bold text-slate-500">
+          <div className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8 lg:p-10 text-sm font-bold text-slate-500">
             Loading plans…
           </div>
         ) : plans.length === 0 ? (
-          <div className="bg-white rounded-[2rem] border border-slate-200 p-10">
+          <div className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8 lg:p-10">
             <p className="text-lg font-black text-slate-800 mb-2">No plans yet</p>
             <p className="text-sm font-medium text-slate-500 mb-6">
               Default Free, Basic, and Premium plans should appear automatically. Create one to get started.
             </p>
-            <Button variant="primary" onClick={handleCreatePlan} disabled={isCreating}>
+            <Button variant="primary" onClick={() => setShowExtraForm(true)} disabled={isCreating}>
               {isCreating ? "Adding…" : "Add a plan"}
             </Button>
           </div>
         ) : (
-          <MotionReveal className="grid lg:grid-cols-[minmax(240px,320px)_minmax(0,1fr)] gap-6 lg:gap-8 items-start">
-            <aside className="bg-white rounded-[2rem] border border-slate-200 p-3 sm:p-4">
+          <MotionReveal className="grid lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)] gap-6 lg:gap-8 items-start min-w-0">
+            <aside className="bg-white rounded-[2rem] border border-slate-200 p-3 sm:p-4 min-w-0 w-full">
               <p className="px-3 pt-2 pb-3 text-[11px] font-black text-slate-500 uppercase tracking-[0.2em]">
                 Your plans
               </p>
-              <div className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-visible pb-1 lg:pb-0">
+              <div className="flex flex-col gap-2 min-w-0">
                 {orderedPlans.map((plan) => {
                   const selected = plan.id === editingId;
                   return (
@@ -370,7 +556,7 @@ export default function PlansPage() {
                       type="button"
                       onClick={() => selectPlan(plan.id)}
                       className={cn(
-                        "min-w-[220px] lg:min-w-0 text-left rounded-2xl border px-4 py-3.5 transition-all",
+                        "w-full min-w-0 text-left rounded-2xl border px-4 py-3.5 transition-all",
                         selected
                           ? "border-teal-400 bg-teal-50/70 ring-2 ring-teal-100"
                           : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50"
@@ -428,15 +614,15 @@ export default function PlansPage() {
               </div>
             </aside>
 
-            <section className="bg-white rounded-[2rem] border border-slate-200 p-6 sm:p-8">
+            <section className="bg-white rounded-[2rem] border border-slate-200 p-5 sm:p-8 min-w-0 w-full overflow-hidden">
               {editingPlan ? (
-                <form onSubmit={handleSave} className="space-y-7">
-                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-                    <div>
-                      <h2 className="text-2xl font-black font-display text-slate-900">
+                <form onSubmit={handleSave} className="space-y-7 min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3 min-w-0">
+                    <div className="min-w-0">
+                      <h2 className="text-2xl font-black font-display text-slate-900 break-words">
                         Edit {editingPlan.name}
                       </h2>
-                      <p className="text-sm font-medium text-slate-500 mt-1">
+                      <p className="text-sm font-medium text-slate-500 mt-1 leading-relaxed break-words">
                         {editingPlan.isDefault
                           ? "This is a default tier. You can rename it and change what it includes."
                           : "This is an extra plan. You can delete it if nobody is subscribed to it."}
@@ -482,23 +668,34 @@ export default function PlansPage() {
                           id="plan-price"
                           type="number"
                           inputMode="decimal"
-                          min={0}
+                          min={isFreePlan ? 0 : 1}
                           step="0.01"
                           value={isFreePlan ? 0 : priceMonthly}
-                          onChange={(e) => setPriceMonthly(Number(e.target.value) || 0)}
+                          onChange={(e) => {
+                            setPriceMonthly(Number(e.target.value) || 0);
+                            setPriceError("");
+                          }}
                           disabled={isFreePlan}
+                          aria-invalid={Boolean(priceError) && !isFreePlan}
                           className={cn(
                             fieldClass,
                             "pl-8",
-                            isFreePlan && "bg-slate-50 text-slate-400 cursor-not-allowed"
+                            isFreePlan && "bg-slate-50 text-slate-400 cursor-not-allowed",
+                            priceError && !isFreePlan && "border-red-400"
                           )}
                         />
                       </div>
-                      <p className="text-xs font-medium text-slate-500">
-                        {isFreePlan
-                          ? "Free stays at $0."
-                          : "This is what new subscribers pay each month."}
-                      </p>
+                      {priceError && !isFreePlan ? (
+                        <p id="plan-price-error" className="text-xs font-medium text-red-600">
+                          {priceError}
+                        </p>
+                      ) : (
+                        <p className="text-xs font-medium text-slate-500">
+                          {isFreePlan
+                            ? "Free stays at $0."
+                            : "New checkouts use this price. Existing members keep their current price until they change plan."}
+                        </p>
+                      )}
                     </div>
                   </div>
 
@@ -511,9 +708,29 @@ export default function PlansPage() {
                           Locked
                         </span>
                       </div>
-                      <p className="text-xs font-medium text-slate-500">
-                        Controls which content this plan can unlock.
+                      <p className="text-xs font-medium text-slate-500 leading-relaxed break-words">
+                        Controls which content this plan can unlock. Download quotas are set by the platform for this tier.
                       </p>
+                      {(() => {
+                        const limits = serializeTierLimits(editingPlan.accessLevel);
+                        return (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            <span className="text-[10px] font-black uppercase tracking-widest px-2.5 py-1 rounded-lg border bg-slate-50 text-slate-600 border-slate-200">
+                              {limits.monthlyDownloads === null
+                                ? "Unlimited downloads"
+                                : `${limits.monthlyDownloads} downloads / 30 days`}
+                            </span>
+                            {limits.features.slice(0, 2).map((feature) => (
+                              <span
+                                key={feature}
+                                className="text-[10px] font-bold px-2.5 py-1 rounded-lg border bg-white text-slate-600 border-slate-200"
+                              >
+                                {feature}
+                              </span>
+                            ))}
+                          </div>
+                        );
+                      })()}
                     </div>
                     <div className="space-y-2">
                       <label htmlFor="plan-description" className={labelClass}>
@@ -543,15 +760,15 @@ export default function PlansPage() {
                       placeholder={"Full video library.\nPremium downloads.\nTemplates."}
                       className={cn(fieldClass, "resize-y font-medium min-h-[180px]")}
                     />
-                    <p className="text-xs font-medium text-slate-500">
-                      Empty lines are ignored. Up to 24 lines.
+                    <p className="text-xs font-medium text-slate-500 leading-relaxed break-words">
+                      Marketing copy for subscribers. Platform limits for this tier still apply even if a line here says otherwise.
                     </p>
                     {textToFeatures(featuresText).length > 0 && (
                       <ul className="pt-2 space-y-2">
                         {textToFeatures(featuresText).slice(0, 6).map((feature, i) => (
-                          <li key={`${feature}-${i}`} className="flex items-start gap-2 text-sm font-medium text-slate-600">
+                          <li key={`${feature}-${i}`} className="flex items-start gap-2 text-sm font-medium text-slate-600 min-w-0">
                             <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                            {feature}
+                            <span className="break-words min-w-0">{feature}</span>
                           </li>
                         ))}
                       </ul>
@@ -587,8 +804,8 @@ export default function PlansPage() {
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-3 pt-2 border-t border-slate-100">
-                    <Button type="submit" variant="primary" disabled={isSaving}>
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 pt-2 border-t border-slate-100">
+                    <Button type="submit" variant="primary" disabled={isSaving} className="w-full sm:w-auto">
                       {isSaving ? "Saving…" : "Save"}
                     </Button>
                     <Button
@@ -596,6 +813,7 @@ export default function PlansPage() {
                       variant="outline"
                       onClick={toggleActive}
                       disabled={isSaving}
+                      className="w-full sm:w-auto"
                     >
                       {editingPlan.isActive ? "Hide from subscribers" : "Offer this plan"}
                     </Button>
@@ -605,7 +823,7 @@ export default function PlansPage() {
                         variant="ghost"
                         onClick={() => handleDeletePlan(editingPlan.id, editingPlan.name)}
                         disabled={isSaving}
-                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50"
+                        className="text-rose-600 hover:text-rose-700 hover:bg-rose-50 w-full sm:w-auto"
                         icon={<Trash2 className="w-4 h-4" />}
                       >
                         Delete

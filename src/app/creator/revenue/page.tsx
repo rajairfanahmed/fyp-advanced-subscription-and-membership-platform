@@ -85,7 +85,7 @@ export default function RevenuePage() {
       label: "Failed Payments",
       value: metrics ? metrics.failedPayments.toString() : "—",
       icon: <AlertCircle className="w-5 h-5 text-red-600" />,
-      caption: "All time",
+      caption: "Last 30 days",
     },
     {
       label: "Churn Rate (30d)",
@@ -102,7 +102,7 @@ export default function RevenuePage() {
 
   return (
     <CreatorShell>
-      <div className="space-y-12">
+      <div className="space-y-12 min-w-0">
 
         <DashboardHeader
           eyebrow="Financial Health"
@@ -146,7 +146,7 @@ export default function RevenuePage() {
                 <h3 className="text-slate-400 font-black text-[10px] uppercase tracking-widest mb-2">
                   {metric.label}
                 </h3>
-                <p className="text-3xl font-black font-display text-slate-900">
+                <p className="text-2xl sm:text-3xl font-black font-display text-slate-900">
                   {isLoading ? "…" : metric.value}
                 </p>
               </div>
@@ -154,15 +154,46 @@ export default function RevenuePage() {
           </div>
         </MotionItem>
 
-        <div className="grid lg:grid-cols-3 gap-10">
+        {data && (
+          <MotionItem>
+            <div className="grid sm:grid-cols-2 gap-4 md:gap-6">
+              <div className="bg-white rounded-[2rem] border border-slate-200 p-6 shadow-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                  Basic MRR
+                </p>
+                <p className="text-2xl font-black font-display text-slate-900">
+                  {formatCurrencyCents(data.mrrByTier.basicMrrCents)}
+                </p>
+                <p className="text-sm font-medium text-slate-500 mt-1">
+                  {data.mrrByTier.basicMembers}{" "}
+                  {data.mrrByTier.basicMembers === 1 ? "member" : "members"}
+                </p>
+              </div>
+              <div className="bg-white rounded-[2rem] border border-slate-200 p-6 shadow-sm">
+                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">
+                  Premium MRR
+                </p>
+                <p className="text-2xl font-black font-display text-slate-900">
+                  {formatCurrencyCents(data.mrrByTier.premiumMrrCents)}
+                </p>
+                <p className="text-sm font-medium text-slate-500 mt-1">
+                  {data.mrrByTier.premiumMembers}{" "}
+                  {data.mrrByTier.premiumMembers === 1 ? "member" : "members"}
+                </p>
+              </div>
+            </div>
+          </MotionItem>
+        )}
+
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
 
           {/* ── Main Content Area (Left) ── */}
-          <div className="lg:col-span-2 space-y-10">
+          <div className="lg:col-span-2 space-y-10 min-w-0">
 
             {/* MRR Trend Chart */}
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm">
-                <div className="flex items-center justify-between mb-10">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6 lg:mb-10">
                   <h2 className="text-xl font-black font-display text-slate-900">
                     MRR Growth (last 6 months)
                   </h2>
@@ -174,7 +205,7 @@ export default function RevenuePage() {
                 {isLoading || !data ? (
                   <p className="text-sm font-bold text-slate-500">Loading trend…</p>
                 ) : maxBarValue === 0 ? (
-                  <div className="rounded-2xl border border-dashed border-slate-200 p-10 text-center">
+                  <div className="rounded-2xl border border-dashed border-slate-200 p-6 sm:p-10 text-center">
                     <p className="font-black text-slate-700 mb-1">No paid subscriptions yet</p>
                     <p className="text-sm font-medium text-slate-500">
                       As paid memberships start, this chart fills in month-by-month.
@@ -182,7 +213,7 @@ export default function RevenuePage() {
                   </div>
                 ) : (
                   <>
-                    <div className="h-64 flex items-end gap-3 border-b border-slate-50 pb-6 relative">
+                    <div className="h-64 flex items-end gap-2 sm:gap-3 border-b border-slate-50 pb-6 relative min-w-0">
                       <div className="absolute inset-0 flex flex-col justify-between pt-2 pointer-events-none">
                         {[1, 2, 3, 4].map((i) => (
                           <div key={i} className="w-full h-px bg-slate-50/50" />
@@ -196,7 +227,7 @@ export default function RevenuePage() {
                         return (
                           <div
                             key={i}
-                            className="flex-1 flex flex-col justify-end group z-10"
+                            className="flex-1 min-w-0 flex flex-col justify-end group z-10"
                             title={`${point.label}: ${formatCurrencyCents(point.valueCents)}`}
                           >
                             <div
@@ -207,9 +238,9 @@ export default function RevenuePage() {
                         );
                       })}
                     </div>
-                    <div className="flex justify-between mt-6 text-[10px] font-black text-slate-400 uppercase tracking-widest">
+                    <div className="flex justify-between gap-1 mt-6 text-[9px] sm:text-[10px] font-black text-slate-400 uppercase tracking-widest min-w-0">
                       {data.trend.map((p, i) => (
-                        <span key={i}>{p.label}</span>
+                        <span key={i} className="min-w-0 truncate text-center">{p.label}</span>
                       ))}
                     </div>
                   </>
@@ -220,7 +251,7 @@ export default function RevenuePage() {
             {/* Recent Payments Table */}
             <MotionReveal>
               <div id="recent-payments" className="bg-white rounded-[2.5rem] border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-10 border-b border-slate-50 flex items-center justify-between">
+                <div className="p-5 sm:p-8 lg:p-10 border-b border-slate-50 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <h2 className="text-xl font-black font-display text-slate-900">
                     Recent Payments
                   </h2>
@@ -230,9 +261,9 @@ export default function RevenuePage() {
                 </div>
 
                 {isLoading ? (
-                  <div className="p-10 text-sm font-bold text-slate-500">Loading payments…</div>
+                  <div className="p-5 sm:p-8 lg:p-10 text-sm font-bold text-slate-500">Loading payments…</div>
                 ) : data && data.recentPayments.length === 0 ? (
-                  <div className="p-10 flex flex-col items-center text-center">
+                  <div className="p-5 sm:p-8 lg:p-10 flex flex-col items-center text-center">
                     <div className="w-14 h-14 rounded-full bg-slate-50 flex items-center justify-center mb-4">
                       <DollarSign className="w-6 h-6 text-slate-300" />
                     </div>
@@ -242,14 +273,14 @@ export default function RevenuePage() {
                     </p>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto min-w-0">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
-                          <th className="p-8">Subscriber</th>
-                          <th className="p-8">Amount</th>
-                          <th className="p-8">Date</th>
-                          <th className="p-8 text-right">Status</th>
+                          <th className="p-4 sm:p-8">Subscriber</th>
+                          <th className="p-4 sm:p-8">Amount</th>
+                          <th className="p-4 sm:p-8">Date</th>
+                          <th className="p-4 sm:p-8 text-right">Status</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-sm">
@@ -258,18 +289,18 @@ export default function RevenuePage() {
                             key={payment.id}
                             className="hover:bg-slate-50/30 transition-colors"
                           >
-                            <td className="p-8 font-bold text-slate-900">
+                            <td className="p-4 sm:p-8 font-bold text-slate-900">
                               {payment.subscriberClerkUserId.slice(0, 8)}…
                             </td>
-                            <td className="p-8 text-slate-900 font-black">
+                            <td className="p-4 sm:p-8 text-slate-900 font-black">
                               {formatCurrencyCents(payment.amountCents)}
                             </td>
-                            <td className="p-8 text-slate-400 font-medium text-xs">
+                            <td className="p-4 sm:p-8 text-slate-400 font-medium text-xs">
                               {payment.paidAt
                                 ? formatDate(payment.paidAt)
                                 : formatDate(payment.createdAt)}
                             </td>
-                            <td className="p-8 text-right">
+                            <td className="p-4 sm:p-8 text-right">
                               <Badge
                                 variant={
                                   payment.status === "succeeded"
@@ -309,7 +340,7 @@ export default function RevenuePage() {
 
             {/* Upcoming Renewals */}
             <MotionReveal>
-              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-10 shadow-sm relative overflow-hidden">
+              <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-32 h-32 bg-teal-500/5 rounded-full blur-3xl pointer-events-none" />
                 <div className="w-14 h-14 rounded-2xl bg-teal-50 flex items-center justify-center mb-8 border border-teal-100">
                   <CalendarClock className="w-6 h-6 text-teal-600" />
@@ -322,13 +353,15 @@ export default function RevenuePage() {
                   <strong className="text-slate-900 font-black">
                     {data?.forecast.upcomingRenewalsCount ?? 0}
                   </strong>{" "}
-                  paid subscriptions scheduled to renew in the next 7 days.
+                  paid subscriptions scheduled to renew in the next{" "}
+                  {data?.forecast.windowDays ?? 7} days. Members already set to
+                  cancel at period end are not included.
                 </p>
                 <div className="p-6 bg-slate-50/50 rounded-[1.5rem] border border-slate-100">
                   <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest block mb-2">
-                    Forecasted Revenue
+                    Forecasted revenue (next 7 days)
                   </span>
-                  <span className="text-3xl font-black text-slate-900">
+                  <span className="text-2xl sm:text-3xl font-black text-slate-900">
                     {data
                       ? formatCurrencyCents(data.forecast.forecastedRevenueCents)
                       : "—"}
@@ -340,7 +373,7 @@ export default function RevenuePage() {
             {/* Failed Payments Alert (only if any) */}
             {data && data.metrics.failedPayments > 0 && (
               <MotionReveal>
-                <div className="bg-red-50/50 rounded-[2.5rem] border border-red-100 p-10 shadow-sm">
+                <div className="bg-red-50/50 rounded-[2.5rem] border border-red-100 p-5 sm:p-8 lg:p-10 shadow-sm">
                   <div className="flex items-center gap-4 mb-6">
                     <div className="w-12 h-12 rounded-2xl bg-red-100 flex items-center justify-center shrink-0 shadow-sm">
                       <AlertCircle className="w-6 h-6 text-red-600" />
@@ -352,7 +385,11 @@ export default function RevenuePage() {
                   <p className="text-sm font-medium text-red-800 leading-relaxed mb-8 opacity-90">
                     {data.metrics.failedPayments}{" "}
                     {data.metrics.failedPayments === 1 ? "payment has" : "payments have"}{" "}
-                    failed. Review charges and follow up with affected subscribers.
+                    failed in the last 30 days
+                    {data.metrics.failedPaymentsAllTime > data.metrics.failedPayments
+                      ? ` (${data.metrics.failedPaymentsAllTime} all time).`
+                      : "."}{" "}
+                    Review charges and follow up with affected subscribers.
                   </p>
                   <Button
                     variant="outline"

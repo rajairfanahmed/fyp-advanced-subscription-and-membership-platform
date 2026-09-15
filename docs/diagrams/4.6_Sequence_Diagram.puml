@@ -1,0 +1,41 @@
+@startuml Sequence_Diagram
+!include _style.puml
+title Figure 4.6 : Sequence Diagram\nPaid checkout through Stripe
+
+actor Subscriber
+participant "Creator page" as Page
+participant "POST /api/checkout" as API
+participant "PostgreSQL" as PG
+participant "Stripe Checkout" as Stripe
+participant "POST /api/webhooks/stripe" as Hook
+
+Subscriber -> Page : click Subscribe (Basic / Premium)
+Page -> API : { planId, successUrl, cancelUrl }
+API -> API : Clerk auth + role == subscriber
+API -> PG : load plan and creator_profiles
+PG --> API : stripe_price_id, access_level
+
+alt account suspended or role is creator
+  API --> Page : 403
+  Page --> Subscriber : cannot subscribe
+else stripe_price_id is empty
+  API --> Page : 400 Checkout not ready
+else
+  API -> Stripe : customers.create or reuse
+  API -> Stripe : checkout.sessions.create\n(platform account)
+  Stripe --> API : session.url
+  API --> Page : { url }
+  Page --> Subscriber : redirect to Stripe
+  Subscriber -> Stripe : pay
+  Stripe -> Hook : checkout.session.completed
+  Hook -> PG : upsert subscriptions\ninsert payments
+  PG --> Hook : row saved
+  Hook --> Stripe : 200
+  Stripe --> Subscriber : redirect successUrl
+  Subscriber -> Page : open library
+  Page -> PG : read access_level
+  PG --> Page : Basic or Premium
+  Page --> Subscriber : unlocked content
+end
+
+@enduml

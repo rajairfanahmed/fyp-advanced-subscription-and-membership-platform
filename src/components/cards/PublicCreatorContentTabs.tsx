@@ -2,9 +2,10 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useUser } from "@clerk/nextjs";
+import { useAuth } from "@clerk/nextjs";
 import { BookOpen, Clock, Download, Lock, Play } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { loginHref } from "@/lib/auth/post-login-redirect";
 import type { PublicContent } from "@/lib/mongodb/public-data";
 
 const TABS = ["Videos", "Articles", "Files"] as const;
@@ -39,9 +40,9 @@ export function PublicCreatorContentTabs({
   viewerAccessLevel?: PublicContent["requiredPlan"];
 }) {
   const [activeTab, setActiveTab] = useState<(typeof TABS)[number]>("Videos");
-  const { user } = useUser();
-  const isCreator = user?.publicMetadata?.role === "creator";
+  const { isLoaded, isSignedIn } = useAuth();
   const visibleContent = content.filter((item) => matchesTab(item, activeTab));
+  const guest = !isLoaded || !isSignedIn;
 
   return (
     <>
@@ -71,27 +72,40 @@ export function PublicCreatorContentTabs({
           {visibleContent.map((item) => {
             const locked =
               TIER_RANK[item.requiredPlan] > TIER_RANK[viewerAccessLevel];
+            const libraryPath = `/library/${item.id}`;
+            const href = guest ? loginHref(libraryPath) : libraryPath;
+            const visuallyLocked = guest || locked;
+            const openLabel =
+              item.contentType === "video"
+                ? visuallyLocked
+                  ? `Sign in to play ${item.title}`
+                  : `Play ${item.title}`
+                : `Open ${item.title}`;
             return (
               <div
                 key={item.id}
                 className="bg-white rounded-2xl border border-slate-200 overflow-hidden transition-all hover:shadow-lg hover:shadow-slate-200/50 hover:-translate-y-0.5 group"
               >
-                <div className="relative w-full aspect-video bg-gradient-to-br from-slate-100 to-emerald-50 overflow-hidden">
+                <Link
+                  href={href}
+                  aria-label={openLabel}
+                  className="relative block w-full aspect-video bg-gradient-to-br from-slate-100 to-emerald-50 overflow-hidden focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-500"
+                >
                   {item.thumbnailUrl && (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={item.thumbnailUrl} alt="" className="absolute inset-0 w-full h-full object-cover" />
                   )}
                   <div className="absolute inset-0 flex items-center justify-center">
                     {item.contentType === "video" ? (
-                      <div className="w-14 h-14 rounded-full bg-white/30 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 transition-transform">
+                      <div className="w-14 h-14 rounded-full bg-white/30 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 group-hover:bg-white/50 transition-transform">
                         <Play className="w-7 h-7 text-white fill-white drop-shadow" />
                       </div>
                     ) : item.contentType === "file" ? (
-                      <div className="w-14 h-14 rounded-2xl bg-white/30 backdrop-blur-sm flex items-center justify-center">
+                      <div className="w-14 h-14 rounded-2xl bg-white/30 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 transition-transform">
                         <Download className="w-7 h-7 text-white drop-shadow" />
                       </div>
                     ) : (
-                      <div className="w-14 h-14 rounded-2xl bg-white/30 backdrop-blur-sm flex items-center justify-center">
+                      <div className="w-14 h-14 rounded-2xl bg-white/30 backdrop-blur-sm flex items-center justify-center group-hover:scale-110 transition-transform">
                         <BookOpen className="w-7 h-7 text-white drop-shadow" />
                       </div>
                     )}
@@ -102,7 +116,7 @@ export function PublicCreatorContentTabs({
                       <span className="text-xs font-bold text-white">{item.videoDurationLabel}</span>
                     </div>
                   )}
-                  {locked && (
+                  {visuallyLocked && (
                     <div className="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/40 backdrop-blur-sm flex items-center justify-center">
                       <Lock className="w-4 h-4 text-white" />
                     </div>
@@ -112,18 +126,12 @@ export function PublicCreatorContentTabs({
                       <span className="text-xs font-black text-slate-700">{contentTypeLabel(item)}</span>
                     </div>
                   )}
-                </div>
+                </Link>
                 <div className="p-5">
-                  <h3 className="font-bold text-[var(--color-ink)] text-sm mb-3 leading-snug group-hover:text-emerald-700 transition-colors line-clamp-2">
+                  <h3 className="font-bold text-[var(--color-ink)] text-sm mb-3 leading-snug line-clamp-2">
                     <Link
-                      href={
-                        locked || isCreator
-                          ? item.creatorSlug
-                            ? `/creators/${item.creatorSlug}`
-                            : "/creators"
-                          : `/library/${item.slug || item.id}`
-                      }
-                      className="hover:text-emerald-700 transition-colors"
+                      href={href}
+                      className="hover:text-emerald-700 hover:underline transition-colors"
                     >
                       {item.title}
                     </Link>

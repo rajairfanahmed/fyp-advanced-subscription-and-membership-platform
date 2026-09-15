@@ -41,7 +41,7 @@ export async function GET(req: NextRequest) {
         },
         {
           Section: "Headline",
-          Metric: "Premium Conversion %",
+          Metric: "Paid Conversion %",
           Value: analytics.metrics.premiumConversionPercent,
         },
         {

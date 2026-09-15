@@ -29,8 +29,20 @@ export async function GET(req: NextRequest) {
           [
             { Metric: "Range", Value: range },
             {
-              Metric: "Platform MRR (USD)",
-              Value: (data.metrics.platformMrrCents / 100).toFixed(2),
+              Metric: "Gross MRR (USD)",
+              Value: (data.metrics.grossMrrCents / 100).toFixed(2),
+            },
+            {
+              Metric: "Collected 30d (USD)",
+              Value: (data.metrics.collected30dCents / 100).toFixed(2),
+            },
+            {
+              Metric: "Platform take 30d (USD)",
+              Value: (data.metrics.platformTakeCents / 100).toFixed(2),
+            },
+            {
+              Metric: "Platform fee (bps)",
+              Value: data.metrics.platformFeeBps,
             },
             {
               Metric: "Active Subscribers",
@@ -96,14 +108,11 @@ export async function GET(req: NextRequest) {
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load analytics.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
+    const { message, status } =
+      (await import("@/lib/auth/require-admin")).adminApiError(
+        error,
+        "Failed to load analytics."
+      );
     console.error("[admin:analytics]", error);
     return NextResponse.json({ error: message }, { status });
   }

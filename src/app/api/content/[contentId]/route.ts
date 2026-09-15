@@ -10,6 +10,7 @@ import {
   unarchiveCreatorContent,
   updateCreatorContent,
 } from "@/lib/mongodb/content";
+import { PRIVATE_NO_STORE } from "@/lib/http/cache";
 
 /**
  * Same JSON contract as POST /api/content. Files are uploaded
@@ -33,13 +34,13 @@ export async function GET(
       }
 
       const content = await getContentForCurrentCreator(contentId);
-      if (!content) return NextResponse.json({ error: "Content not found." }, { status: 404 });
-      return NextResponse.json({ content });
+      if (!content) return NextResponse.json({ error: "Content not found." }, { status: 404, headers: PRIVATE_NO_STORE });
+      return NextResponse.json({ content }, { headers: PRIVATE_NO_STORE });
     }
 
     const content = await getGuardedPublishedContent(contentId);
-    if (!content) return NextResponse.json({ error: "Content not found." }, { status: 404 });
-    return NextResponse.json({ content });
+    if (!content) return NextResponse.json({ error: "Content not found." }, { status: 404, headers: PRIVATE_NO_STORE });
+    return NextResponse.json({ content }, { headers: PRIVATE_NO_STORE });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load content.";
     if (

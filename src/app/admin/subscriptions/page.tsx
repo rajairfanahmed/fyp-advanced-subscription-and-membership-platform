@@ -14,6 +14,9 @@ import {
   TrendingDown,
   CheckCircle2,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { ConfirmPhraseDialog } from "@/components/admin/ConfirmPhraseDialog";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import type {
   AdminSubscriptionRow,
@@ -58,17 +61,29 @@ export default function AdminSubscriptionsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_FILTERS)[number]["id"]>("all");
   const [actionPending, setActionPending] = useState<string | null>(null);
   const [actionError, setActionError] = useState("");
   const [feedback, setFeedback] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<{
+    id: string;
+    when: "now" | "period_end";
+  } | null>(null);
 
   const load = React.useCallback(async () => {
     setIsLoading(true);
     setErrorMessage("");
     try {
-      const res = await fetch("/api/admin/subscriptions", { cache: "no-store" });
+      const params = new URLSearchParams({
+        page: String(page),
+        q: debouncedQuery,
+      });
+      const res = await fetch(`/api/admin/subscriptions?${params.toString()}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(body.error || "Failed to load subscriptions.");
@@ -82,7 +97,11 @@ export default function AdminSubscriptionsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [page, debouncedQuery]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [debouncedQuery]);
 
   useEffect(() => {
     load();
@@ -111,6 +130,7 @@ export default function AdminSubscriptionsPage() {
         throw new Error(body.error || "Action failed.");
       }
       setFeedback(successMessage);
+      setCancelTarget(null);
       await load();
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Action failed.");
@@ -119,16 +139,8 @@ export default function AdminSubscriptionsPage() {
     }
   }
 
-  function handleCancel(id: string) {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "Cancel this subscription on behalf of the subscriber? This is permanent."
-      )
-    ) {
-      return;
-    }
-    runAction(id, { action: "cancel" }, "Subscription cancelled.");
+  function handleCancel(id: string, when: "now" | "period_end" = "now") {
+    setCancelTarget({ id, when });
   }
 
   function handleExtend(id: string, days: number) {
@@ -354,7 +366,7 @@ export default function AdminSubscriptionsPage() {
                                   </div>
                                 </td>
                                 <td className="p-8">
-                                  <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                  <div className="flex items-center justify-end gap-2 opacity-100 transition-opacity">
                                     {isActive && (
                                       <>
                                         <Button
@@ -378,11 +390,20 @@ export default function AdminSubscriptionsPage() {
                                         <Button
                                           variant="outline"
                                           size="sm"
-                                          className="h-9 px-3 text-xs bg-white rounded-xl border-rose-200 text-rose-700 hover:border-rose-300"
-                                          onClick={() => handleCancel(sub.id)}
+                                          className="h-9 px-3 text-xs bg-white rounded-xl"
+                                          onClick={() => handleCancel(sub.id, "period_end")}
                                           disabled={actionPending === sub.id}
                                         >
-                                          {actionPending === sub.id ? "…" : "Cancel"}
+                                          Period end
+                                        </Button>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="h-9 px-3 text-xs bg-white rounded-xl border-rose-200 text-rose-700 hover:border-rose-300"
+                                          onClick={() => handleCancel(sub.id, "now")}
+                                          disabled={actionPending === sub.id}
+                                        >
+                                          {actionPending === sub.id ? "…" : "Cancel now"}
                                         </Button>
                                       </>
                                     )}
@@ -437,6 +458,7 @@ export default function AdminSubscriptionsPage() {
                         </div>
                       ))}
                     </div>
+                    <AdminPager page={data?.page} onPage={setPage} />
                   </>
                 )}
               </div>
@@ -485,6 +507,45 @@ export default function AdminSubscriptionsPage() {
           </div>
         </div>
       </div>
+      <ConfirmPhraseDialog
+        open={cancelTarget?.when === "now"}
+        title="Cancel this membership now?"
+        description="Access ends immediately and Stripe billing stops. Type CANCEL NOW to confirm."
+        phrase="CANCEL NOW"
+        confirmLabel="Cancel now"
+        pending={Boolean(cancelTarget && actionPending === cancelTarget.id)}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={() => {
+          if (!cancelTarget) return;
+          void runAction(
+            cancelTarget.id,
+            { action: "cancel", when: "now", confirmationPhrase: "CANCEL NOW" },
+            "Subscription cancelled."
+          );
+        }}
+      />
+      <ConfirmPhraseDialog
+        open={cancelTarget?.when === "period_end"}
+        title="Cancel at period end?"
+        description="The subscriber keeps access until the current period ends. Type PERIOD END to confirm."
+        phrase="PERIOD END"
+        tone="warning"
+        confirmLabel="Schedule cancellation"
+        pending={Boolean(cancelTarget && actionPending === cancelTarget.id)}
+        onClose={() => setCancelTarget(null)}
+        onConfirm={() => {
+          if (!cancelTarget) return;
+          void runAction(
+            cancelTarget.id,
+            {
+              action: "cancel",
+              when: "period_end",
+              confirmationPhrase: "PERIOD END",
+            },
+            "Cancellation scheduled at period end."
+          );
+        }}
+      />
     </AdminShell>
   );
 }

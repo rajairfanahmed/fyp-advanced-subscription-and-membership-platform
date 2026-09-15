@@ -1,26 +1,21 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 
+import { parseAdminListQuery } from "@/lib/auth/admin-list-query";
+import { adminErrorJson } from "@/lib/auth/admin-http";
 import { requireAdminContext } from "@/lib/auth/require-admin";
 import { getAdminPlans } from "@/lib/mongodb/admin-stats";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
     await requireAdminContext();
-    const data = await getAdminPlans();
+    const list = parseAdminListQuery(req.nextUrl.searchParams);
+    const data = await getAdminPlans(list);
     return NextResponse.json(data, {
       status: 200,
       headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to load plans.";
-    const status =
-      message === "Not signed in."
-        ? 401
-        : message === "Admin access required."
-          ? 403
-          : 400;
     console.error("[admin:plans]", error);
-    return NextResponse.json({ error: message }, { status });
+    return adminErrorJson(error, "Failed to load plans.");
   }
 }

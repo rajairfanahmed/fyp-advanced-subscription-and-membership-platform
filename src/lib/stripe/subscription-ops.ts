@@ -61,6 +61,28 @@ export async function cancelStripeSubscriptionAtPeriodEnd(
   });
 }
 
+/** Pause invoice collection without ending the subscription. Used by admin suspend. */
+export async function pauseStripeSubscriptionCollection(
+  stripeSubscriptionId: string
+): Promise<Stripe.Subscription | null> {
+  if (!isStripeConfigured()) return null;
+  const stripe = getStripeClient();
+  return stripe.subscriptions.update(stripeSubscriptionId, {
+    pause_collection: { behavior: "void" },
+  });
+}
+
+/** Resume collection after an admin restore. */
+export async function resumeStripeSubscriptionCollection(
+  stripeSubscriptionId: string
+): Promise<Stripe.Subscription | null> {
+  if (!isStripeConfigured()) return null;
+  const stripe = getStripeClient();
+  return stripe.subscriptions.update(stripeSubscriptionId, {
+    pause_collection: null,
+  });
+}
+
 /** Immediate cancel — used by admin force-cancel and refunds. */
 export async function cancelStripeSubscriptionNow(
   stripeSubscriptionId: string
@@ -138,4 +160,67 @@ export async function stampStripeSubscriptionPlanMetadata(input: {
       access_level: input.accessLevel,
     },
   });
+}
+
+const LIVE_STRIPE_STATUSES = new Set<Stripe.Subscription.Status>([
+  "active",
+  "trialing",
+  "past_due",
+  "unpaid",
+]);
+
+export async function listLiveStripeSubscriptionsForCustomer(
+  customerId: string
+): Promise<Stripe.Subscription[]> {
+  if (!isStripeConfigured() || !customerId) return [];
+  const stripe = getStripeClient();
+  const page = await stripe.subscriptions.list({
+    customer: customerId,
+    status: "all",
+    limit: 100,
+  });
+  const seen = new Set<string>();
+  return page.data.filter((sub) => {
+    if (seen.has(sub.id) || !LIVE_STRIPE_STATUSES.has(sub.status)) return false;
+    seen.add(sub.id);
+    return true;
+  });
+}
+
+export function stripeSubscriptionMatchesCreator(
+  sub: Stripe.Subscription,
+  input: {
+    creatorClerkUserId: string;
+    priceIds?: string[];
+    keepStripeSubscriptionId?: string;
+  }
+): boolean {
+  const metaCreator = sub.metadata?.creator_clerk_user_id ?? "";
+  if (metaCreator) return metaCreator === input.creatorClerkUserId;
+  if (input.keepStripeSubscriptionId && sub.id === input.keepStripeSubscriptionId) {
+    return true;
+  }
+  return false;
+}
+
+/** Keep the newest live Stripe subscription for a creator; cancel the rest immediately. */
+export async function cancelDuplicateStripeSubscriptions(
+  subscriptions: Stripe.Subscription[],
+  keepId?: string
+): Promise<Stripe.Subscription | null> {
+  if (subscriptions.length === 0) return null;
+  const sorted = [...subscriptions].sort((a, b) => (b.created ?? 0) - (a.created ?? 0));
+  const keeper =
+    (keepId ? sorted.find((s) => s.id === keepId) : undefined) ?? sorted[0];
+  const stripe = getStripeClient();
+  await Promise.all(
+    sorted
+      .filter((s) => s.id !== keeper.id)
+      .map((s) =>
+        stripe.subscriptions.cancel(s.id).catch((error) => {
+          console.warn("[stripe] failed to cancel duplicate subscription", s.id, error);
+        })
+      )
+  );
+  return keeper;
 }

@@ -1,9 +1,7 @@
 import { connectToMongoDB } from "@/lib/mongodb/connect";
 import {
-  AnalyticsModel,
   ContentModel,
   CreatorProfileModel,
-  NotificationModel,
   PaymentModel,
   PlanModel,
   SubscriptionModel,
@@ -11,7 +9,15 @@ import {
   type CreatorProfileDocument,
   type UserProfileDocument,
 } from "@/lib/mongodb/models";
-import { isAdminEmail } from "@/lib/auth/roles";
+import { isAdminEmail, getAdminEmails } from "@/lib/auth/roles";
+import { isRecordId } from "@/lib/db/ids";
+import {
+  adminPageMeta,
+  ilikeContains,
+  type AdminListQuery,
+} from "@/lib/auth/admin-list-query";
+import { loadPlatformSettings } from "@/lib/mongodb/admin-settings";
+import { pgQuery } from "@/lib/db/pool";
 import type {
   AdminAnalyticsRange,
   AdminAnalyticsResponse,
@@ -43,6 +49,20 @@ const ACTIVE_STATUSES = ["active", "trialing", "past_due"] as const;
 
 function asNumber(value: unknown, fallback = 0): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+async function sqlCount(sql: string, params: unknown[] = []): Promise<number> {
+  const res = await pgQuery<{ count: string }>(sql, params);
+  return Number(res.rows[0]?.count ?? 0);
+}
+
+async function sqlSum(sql: string, params: unknown[] = []): Promise<number> {
+  const res = await pgQuery<{ sum: string }>(sql, params);
+  return Number(res.rows[0]?.sum ?? 0);
+}
+
+function emptyListQuery(): AdminListQuery {
+  return { q: "", page: 1, pageSize: 25, skip: 0, csv: false };
 }
 
 function planLabel(accessLevel: string): "Free" | "Basic" | "Premium" {
@@ -142,86 +162,99 @@ export async function getAdminOverview(): Promise<AdminOverviewResponse> {
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const settings = await loadPlatformSettings();
+  const feeBps = settings.platformFeeBps;
 
   const [
     totalUsers,
     activeCreators,
-    activeSubsDocs,
+    activeSubscriberCount,
+    activeSubCount,
+    paidSubCount,
+    grossMrrCents,
     cancelled30d,
     publishedContent,
-    failedPaymentCount,
+    failedPaymentCount30d,
     succeededPaymentCount,
+    failedPaymentCountAll,
+    collected30dCents,
     recentSubsRaw,
     recentPaymentsRaw,
     recentContentRaw,
   ] = await Promise.all([
-    UserProfileModel.countDocuments({}),
-    CreatorProfileModel.countDocuments({}),
-    SubscriptionModel.find({
-      status: { $in: [...ACTIVE_STATUSES] },
-    }),
-    SubscriptionModel.countDocuments({
-      status: "canceled",
-      canceledAt: { $gte: thirtyDaysAgo },
-    }),
-    ContentModel.countDocuments({ status: "published" }),
-    PaymentModel.countDocuments({ status: "failed" }),
-    PaymentModel.countDocuments({ status: "succeeded" }),
-    SubscriptionModel.find({})
-      .sort({ updatedAt: -1, createdAt: -1 })
-      .limit(8),
-    PaymentModel.find({})
-      .sort({ paidAt: -1, createdAt: -1 })
-      .limit(8),
-    ContentModel.find({ status: "published" })
-      .sort({ publishedAt: -1, createdAt: -1 })
-      .limit(8),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM user_profiles`),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM creator_profiles WHERE profile_status = 'published'`
+    ),
+    sqlCount(
+      `SELECT COUNT(DISTINCT subscriber_clerk_user_id)::text AS count
+       FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')`
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count
+       FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')`
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count
+       FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')
+         AND access_level IS DISTINCT FROM 'free'`
+    ),
+    sqlSum(
+      `SELECT COALESCE(SUM(ROUND(price_monthly * 100)),0)::text AS sum
+       FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')
+         AND access_level IS DISTINCT FROM 'free'`
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM subscriptions
+       WHERE status = 'canceled' AND canceled_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM content WHERE status = 'published'`),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM payments WHERE status = 'failed' AND created_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM payments WHERE status = 'succeeded'`),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM payments WHERE status = 'failed'`),
+    sqlSum(
+      `SELECT COALESCE(SUM(amount_cents),0)::text AS sum
+       FROM payments WHERE status = 'succeeded' AND paid_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+    SubscriptionModel.find({}).sort({ updatedAt: -1, createdAt: -1 }).limit(8),
+    PaymentModel.find({}).sort({ paidAt: -1, createdAt: -1 }).limit(8),
+    ContentModel.find({ status: "published" }).sort({ publishedAt: -1, createdAt: -1 }).limit(8),
   ]);
 
-  const activeSubscriberIds = new Set(
-    activeSubsDocs.map((s) => s.subscriberClerkUserId)
-  );
-  const paidSubsCount = activeSubsDocs.filter(
-    (s) => s.accessLevel !== "free"
-  ).length;
-
-  const monthlyRevenueCents = activeSubsDocs
-    .filter((s) => s.accessLevel !== "free")
-    .reduce((acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100), 0);
-
   const conversionRatePercent =
-    activeSubsDocs.length > 0
-      ? Math.round((paidSubsCount / activeSubsDocs.length) * 1000) / 10
-      : 0;
-
-  const totalPayments = succeededPaymentCount + failedPaymentCount;
+    activeSubCount > 0 ? Math.round((paidSubCount / activeSubCount) * 1000) / 10 : 0;
+  const totalPayments = succeededPaymentCount + failedPaymentCountAll;
   const paymentSuccessRatePercent =
     totalPayments > 0
       ? Math.round((succeededPaymentCount / totalPayments) * 1000) / 10
       : 100;
-
   const userRetentionRatePercent =
-    totalUsers > 0
-      ? Math.round((activeSubscriberIds.size / totalUsers) * 1000) / 10
-      : 0;
+    totalUsers > 0 ? Math.round((activeSubscriberCount / totalUsers) * 1000) / 10 : 0;
+  const platformTakeCents = Math.round((collected30dCents * feeBps) / 10000);
 
-  // Build trend (last 6 months) by counting paid subscriptions whose
-  // startedAt falls in each month.
-  const paidActive = activeSubsDocs.filter((s) => s.accessLevel !== "free");
-  const trend = [];
+  const trend: AdminOverviewResponse["trend"] = [];
   for (let i = 5; i >= 0; i -= 1) {
     const monthStart = startOfMonthsAgo(i);
     const monthEnd = startOfMonthsAgo(i - 1);
-    const valueCents = paidActive
-      .filter((s) => {
-        const started = s.startedAt ?? s.createdAt;
-        return started && started >= monthStart && started < monthEnd;
-      })
-      .reduce((acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100), 0);
+    const valueCents = await sqlSum(
+      `SELECT COALESCE(SUM(amount_cents),0)::text AS sum
+       FROM payments
+       WHERE status = 'succeeded'
+         AND paid_at >= $1 AND paid_at < $2`,
+      [monthStart, monthEnd]
+    );
     trend.push({ label: monthLabel(monthStart), valueCents });
   }
 
-  // Resolve names for activity feed
   const subscriberIds = Array.from(
     new Set([
       ...recentSubsRaw.map((s) => s.subscriberClerkUserId),
@@ -299,10 +332,14 @@ export async function getAdminOverview(): Promise<AdminOverviewResponse> {
   return {
     metrics: {
       totalUsers,
-      activeSubscribers: activeSubscriberIds.size,
+      activeSubscribers: activeSubscriberCount,
       activeCreators,
-      monthlyRevenueCents,
-      failedPayments: failedPaymentCount,
+      monthlyRevenueCents: grossMrrCents,
+      grossMrrCents,
+      collected30dCents,
+      platformTakeCents,
+      platformFeeBps: feeBps,
+      failedPayments: failedPaymentCount30d,
       cancelledSubscribers30d: cancelled30d,
       publishedContent,
       conversionRatePercent,
@@ -319,18 +356,78 @@ export async function getAdminOverview(): Promise<AdminOverviewResponse> {
 // ──────────────────────────────────────────────────────────────
 // /admin/users
 // ──────────────────────────────────────────────────────────────
-export async function getAdminUsers(): Promise<AdminUsersResponse> {
+export async function getAdminUsers(
+  list: AdminListQuery = emptyListQuery(),
+  roleFilter: "all" | "subscriber" | "creator" | "admin" = "all"
+): Promise<AdminUsersResponse> {
   await connectToMongoDB();
+  const adminEmails = getAdminEmails();
+  const params: unknown[] = [];
+  const where: string[] = ["TRUE"];
 
-  const [users, activeSubs] = await Promise.all([
-    UserProfileModel.find({}).sort({ createdAt: -1 }),
-    SubscriptionModel.find({
-      status: { $in: [...ACTIVE_STATUSES] },
-    }),
-  ]);
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    const i = params.length;
+    where.push(
+      `(COALESCE(display_name,'') ILIKE $${i} OR COALESCE(full_name,'') ILIKE $${i} OR COALESCE(email,'') ILIKE $${i} OR clerk_user_id ILIKE $${i})`
+    );
+  }
+  if (roleFilter === "creator") {
+    where.push(`role = 'creator'`);
+    if (adminEmails.length) {
+      params.push(adminEmails);
+      where.push(`NOT (LOWER(email) = ANY($${params.length}::text[]))`);
+    }
+  } else if (roleFilter === "subscriber") {
+    where.push(`role = 'subscriber'`);
+    if (adminEmails.length) {
+      params.push(adminEmails);
+      where.push(`NOT (LOWER(email) = ANY($${params.length}::text[]))`);
+    }
+  } else if (roleFilter === "admin") {
+    if (adminEmails.length === 0) {
+      where.push("FALSE");
+    } else {
+      params.push(adminEmails);
+      where.push(`LOWER(email) = ANY($${params.length}::text[])`);
+    }
+  }
 
-  // Map subscriber -> highest active plan held across all creators.
-  // Premium > Basic > Free precedence.
+  const whereSql = where.join(" AND ");
+  const total = await sqlCount(
+    `SELECT COUNT(*)::text AS count FROM user_profiles WHERE ${whereSql}`,
+    params
+  );
+  const pageParams = [...params, list.pageSize, list.skip];
+  const pageRes = await pgQuery(
+    `SELECT * FROM user_profiles WHERE ${whereSql}
+     ORDER BY created_at DESC
+     LIMIT $${pageParams.length - 1} OFFSET $${pageParams.length}`,
+    pageParams
+  );
+  const users = pageRes.rows.map((row) => {
+    const doc = {
+      _id: { toString: () => String(row.id) },
+      clerkUserId: String(row.clerk_user_id ?? ""),
+      email: String(row.email ?? ""),
+      displayName: String(row.display_name ?? ""),
+      fullName: String(row.full_name ?? ""),
+      role: row.role as "subscriber" | "creator",
+      accountStatus: String(row.account_status ?? "active"),
+      avatarUrl: String(row.avatar_url ?? ""),
+      createdAt: new Date(String(row.created_at)),
+    };
+    return doc;
+  });
+
+  const clerkIds = users.map((u) => u.clerkUserId).filter(Boolean);
+  const activeSubs = clerkIds.length
+    ? await SubscriptionModel.find({
+        subscriberClerkUserId: { $in: clerkIds },
+        status: { $in: [...ACTIVE_STATUSES] },
+      })
+    : [];
+
   const planRank: Record<PlanAccessLevel, number> = {
     free: 0,
     basic: 1,
@@ -367,18 +464,22 @@ export async function getAdminUsers(): Promise<AdminUsersResponse> {
     };
   });
 
-  const activeAccounts = rows.filter((r) => r.status === "Active").length;
-  const suspended = rows.filter((r) => r.status === "Suspended").length;
-  const deactivated = rows.filter((r) => r.status === "Deleted").length;
+  const [activeAccounts, suspended, deactivated, totalUsers] = await Promise.all([
+    sqlCount(`SELECT COUNT(*)::text AS count FROM user_profiles WHERE account_status = 'active'`),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM user_profiles WHERE account_status = 'suspended'`),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM user_profiles WHERE account_status = 'deleted'`),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM user_profiles`),
+  ]);
 
   return {
     metrics: {
-      totalUsers: rows.length,
+      totalUsers,
       activeAccounts,
       suspended,
       deactivated,
     },
     users: rows,
+    page: adminPageMeta(total, list),
   };
 }
 
@@ -391,27 +492,35 @@ export async function getAdminUserDetail(
   await connectToMongoDB();
   if (!userIdOrClerkId) return null;
 
-  // Accept either the Mongo `_id` or the Clerk `clerkUserId` so the
+  // Accept either the Postgres `_id` or the Clerk `clerkUserId` so the
   // route can take whichever the UI has.
-  const isObjectId = /^[a-f0-9]{24}$/i.test(userIdOrClerkId);
-  const profile = isObjectId
+  const profile = isRecordId(userIdOrClerkId)
     ? await UserProfileModel.findById(userIdOrClerkId)
     : await UserProfileModel.findOne({ clerkUserId: userIdOrClerkId });
   if (!profile) return null;
 
   const clerkUserId = profile.clerkUserId;
 
-  const [subscriptions, payments, creators] = await Promise.all([
-    SubscriptionModel.find({ subscriberClerkUserId: clerkUserId }).sort({
-      updatedAt: -1,
-      createdAt: -1,
-    }),
-    PaymentModel.find({ subscriberClerkUserId: clerkUserId }).sort({
-      paidAt: -1,
-      createdAt: -1,
-    }),
-    CreatorProfileModel.find({}),
+  const [subscriptions, payments] = await Promise.all([
+    SubscriptionModel.find({ subscriberClerkUserId: clerkUserId })
+      .sort({
+        updatedAt: -1,
+        createdAt: -1,
+      })
+      .limit(50),
+    PaymentModel.find({ subscriberClerkUserId: clerkUserId })
+      .sort({
+        paidAt: -1,
+        createdAt: -1,
+      })
+      .limit(50),
   ]);
+  const creatorIds = Array.from(
+    new Set([clerkUserId, ...subscriptions.map((s) => s.creatorClerkUserId)])
+  );
+  const creators = creatorIds.length
+    ? await CreatorProfileModel.find({ clerkUserId: { $in: creatorIds } })
+    : [];
   const creatorMap = buildCreatorNameMap(creators);
 
   const subscriptionRows: AdminUserSubscriptionRow[] = subscriptions.map(
@@ -528,8 +637,7 @@ export async function updateAdminUserStatus(input: {
   await connectToMongoDB();
   if (!input.userIdOrClerkId) return null;
 
-  const isObjectId = /^[a-f0-9]{24}$/i.test(input.userIdOrClerkId);
-  const filter = isObjectId
+  const filter = isRecordId(input.userIdOrClerkId)
     ? { _id: input.userIdOrClerkId }
     : { clerkUserId: input.userIdOrClerkId };
 
@@ -546,261 +654,373 @@ export async function updateAdminUserStatus(input: {
 // ──────────────────────────────────────────────────────────────
 // /admin/creators
 // ──────────────────────────────────────────────────────────────
-export async function getAdminCreators(): Promise<AdminCreatorsResponse> {
+export async function getAdminCreators(
+  list: AdminListQuery = emptyListQuery()
+): Promise<AdminCreatorsResponse> {
   await connectToMongoDB();
 
-  const [creators, allSubs, contentDocs] = await Promise.all([
-    CreatorProfileModel.find({}).sort({ createdAt: -1 }),
-    SubscriptionModel.find({
-      status: { $in: [...ACTIVE_STATUSES] },
-    }),
-    ContentModel.find(
-      { status: { $ne: "archived" } },
-      { creatorClerkUserId: 1 }
-    ),
-  ]);
+  const params: unknown[] = [];
+  let where = "TRUE";
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    where = `(cp.creator_name ILIKE $1 OR cp.creator_slug ILIKE $1 OR COALESCE(up.email,'') ILIKE $1)`;
+  }
+  const total = await sqlCount(
+    `SELECT COUNT(*)::text AS count
+     FROM creator_profiles cp
+     LEFT JOIN user_profiles up ON up.clerk_user_id = cp.clerk_user_id
+     WHERE ${where}`,
+    params
+  );
+  const pageParams = [...params, list.pageSize, list.skip];
+  const lim = pageParams.length - 1;
+  const off = pageParams.length;
+  const pageRes = await pgQuery(
+    `SELECT cp.* FROM creator_profiles cp
+     LEFT JOIN user_profiles up ON up.clerk_user_id = cp.clerk_user_id
+     WHERE ${where}
+     ORDER BY cp.created_at DESC
+     LIMIT $${lim} OFFSET $${off}`,
+    pageParams
+  );
 
-  const creatorClerkIds = creators.map((c) => c.clerkUserId);
-  const userProfiles = creatorClerkIds.length
-    ? await UserProfileModel.find(
-        { clerkUserId: { $in: creatorClerkIds } },
-        { clerkUserId: 1, email: 1, avatarUrl: 1 }
-      )
+  const creators = pageRes.rows;
+  const creatorClerkIds = creators.map((c) => String(c.clerk_user_id ?? "")).filter(Boolean);
+  const allSubs = creatorClerkIds.length
+    ? await SubscriptionModel.find({
+        creatorClerkUserId: { $in: creatorClerkIds },
+        status: { $in: [...ACTIVE_STATUSES] },
+      })
     : [];
-  const emailByClerkId = new Map(
-    userProfiles.map((u) => [u.clerkUserId, u.email ?? ""])
-  );
-  const avatarByClerkId = new Map(
-    userProfiles.map((u) => [u.clerkUserId, u.avatarUrl ?? ""])
-  );
+  const contentCounts = creatorClerkIds.length
+    ? await pgQuery<{ creator_clerk_user_id: string; n: string }>(
+        `SELECT creator_clerk_user_id, COUNT(*)::text AS n
+         FROM content
+         WHERE creator_clerk_user_id = ANY($1::text[])
+           AND status IS DISTINCT FROM 'archived'
+         GROUP BY creator_clerk_user_id`,
+        [creatorClerkIds]
+      )
+    : { rows: [] as Array<{ creator_clerk_user_id: string; n: string }> };
 
+  const userProfiles = creatorClerkIds.length
+    ? await UserProfileModel.find({ clerkUserId: { $in: creatorClerkIds } })
+    : [];
+  const emailByClerkId = new Map(userProfiles.map((u) => [u.clerkUserId, u.email ?? ""]));
+  const avatarByClerkId = new Map(userProfiles.map((u) => [u.clerkUserId, u.avatarUrl ?? ""]));
+  const contentByCreator = new Map(
+    contentCounts.rows.map((r) => [r.creator_clerk_user_id, Number(r.n)])
+  );
   const subsByCreator = new Map<string, typeof allSubs>();
   for (const sub of allSubs) {
-    const list = subsByCreator.get(sub.creatorClerkUserId) ?? [];
-    list.push(sub);
-    subsByCreator.set(sub.creatorClerkUserId, list);
+    const listFor = subsByCreator.get(sub.creatorClerkUserId) ?? [];
+    listFor.push(sub);
+    subsByCreator.set(sub.creatorClerkUserId, listFor);
   }
 
-  const contentByCreator = new Map<string, number>();
-  for (const c of contentDocs) {
-    contentByCreator.set(
-      c.creatorClerkUserId,
-      (contentByCreator.get(c.creatorClerkUserId) ?? 0) + 1
-    );
-  }
-
-  const rows: AdminCreatorRow[] = creators.map((creator) => {
-    const subs = subsByCreator.get(creator.clerkUserId) ?? [];
+  const rows: AdminCreatorRow[] = creators.map((row) => {
+    const clerkUserId = String(row.clerk_user_id ?? "");
+    const subs = subsByCreator.get(clerkUserId) ?? [];
     const paidSubs = subs.filter((s) => s.accessLevel !== "free");
     const mrrCents = paidSubs.reduce(
       (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
       0
     );
     return {
-      id: creator._id.toString(),
-      clerkUserId: creator.clerkUserId,
-      creatorSlug: creator.creatorSlug,
-      creatorName: creator.creatorName,
-      email: emailByClerkId.get(creator.clerkUserId) ?? "",
-      avatarUrl:
-        creator.avatarUrl || avatarByClerkId.get(creator.clerkUserId) || "",
+      id: String(row.id),
+      clerkUserId,
+      creatorSlug: String(row.creator_slug ?? ""),
+      creatorName: String(row.creator_name ?? ""),
+      email: emailByClerkId.get(clerkUserId) ?? "",
+      avatarUrl: String(row.avatar_url ?? "") || avatarByClerkId.get(clerkUserId) || "",
       subscribersCount: subs.length,
       paidSubscribersCount: paidSubs.length,
-      contentCount: contentByCreator.get(creator.clerkUserId) ?? 0,
+      contentCount: contentByCreator.get(clerkUserId) ?? 0,
       mrrCents,
-      status: creator.profileStatus === "published" ? "Active" : "Review",
-      createdAt: creator.createdAt.toISOString(),
+      status: String(row.profile_status) === "published" ? "Active" : "Review",
+      createdAt: new Date(String(row.created_at)).toISOString(),
     };
   });
 
-  const totalCreatorMrrCents = rows.reduce((acc, r) => acc + r.mrrCents, 0);
-  const totalSubs = rows.reduce((acc, r) => acc + r.subscribersCount, 0);
-  const avgAudience = rows.length ? Math.round(totalSubs / rows.length) : 0;
-  const pendingReview = rows.filter((r) => r.status === "Review").length;
+  const [totalCreators, pendingReview, totalCreatorMrrCents, totalActiveSubs] = await Promise.all([
+    sqlCount(`SELECT COUNT(*)::text AS count FROM creator_profiles`),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM creator_profiles WHERE profile_status IS DISTINCT FROM 'published'`
+    ),
+    sqlSum(
+      `SELECT COALESCE(SUM(ROUND(price_monthly * 100)),0)::text AS sum
+       FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')
+         AND access_level IS DISTINCT FROM 'free'`
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status IN ('active','trialing','past_due')`
+    ),
+  ]);
+  const avgAudience = totalCreators ? Math.round(totalActiveSubs / totalCreators) : 0;
 
   return {
     metrics: {
-      totalCreators: rows.length,
+      totalCreators,
       totalCreatorMrrCents,
       avgAudience,
       pendingReview,
     },
     creators: rows,
+    page: adminPageMeta(total, list),
   };
 }
 
 // ──────────────────────────────────────────────────────────────
 // /admin/subscribers
 // ──────────────────────────────────────────────────────────────
-export async function getAdminSubscribers(): Promise<AdminSubscribersResponse> {
+export async function getAdminSubscribers(
+  list: AdminListQuery = emptyListQuery()
+): Promise<AdminSubscribersResponse> {
   await connectToMongoDB();
 
-  const subscriptions = await SubscriptionModel.find({}).sort({
-    updatedAt: -1,
-    createdAt: -1,
-  });
+  const params: unknown[] = [];
+  let where = "TRUE";
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    where = `(COALESCE(up.display_name,'') ILIKE $1 OR COALESCE(up.full_name,'') ILIKE $1 OR COALESCE(up.email,'') ILIKE $1 OR COALESCE(cp.creator_name,'') ILIKE $1 OR s.access_level ILIKE $1 OR s.status ILIKE $1)`;
+  }
 
-  const subscriberIds = Array.from(
-    new Set(subscriptions.map((s) => s.subscriberClerkUserId))
-  );
-  const creatorIds = Array.from(
-    new Set(subscriptions.map((s) => s.creatorClerkUserId))
-  );
+  const [pageRes, total, activeCount, premiumCount, basicCount, freeCount, highCount, churnRiskCount] =
+    await Promise.all([
+      pgQuery<{
+        id: string;
+        subscriber_clerk_user_id: string;
+        access_level: string;
+        status: string;
+        started_at: string | null;
+        created_at: string;
+        current_period_end: string | null;
+        canceled_at: string | null;
+        cancel_at_period_end: boolean;
+        subscriber_name: string;
+        subscriber_email: string;
+        avatar_url: string;
+        creator_name: string;
+        creator_slug: string;
+      }>(
+        `SELECT s.id::text AS id, s.subscriber_clerk_user_id, s.access_level, s.status,
+                s.started_at, s.created_at, s.current_period_end, s.canceled_at,
+                s.cancel_at_period_end,
+                COALESCE(up.display_name, up.full_name, up.email, 'Unknown') AS subscriber_name,
+                COALESCE(up.email, '') AS subscriber_email,
+                COALESCE(up.avatar_url, '') AS avatar_url,
+                COALESCE(cp.creator_name, 'Unknown creator') AS creator_name,
+                COALESCE(cp.creator_slug, '') AS creator_slug
+         FROM subscriptions s
+         LEFT JOIN user_profiles up ON up.clerk_user_id = s.subscriber_clerk_user_id
+         LEFT JOIN creator_profiles cp ON cp.clerk_user_id = s.creator_clerk_user_id
+         WHERE ${where}
+         ORDER BY s.updated_at DESC, s.created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, list.pageSize, list.skip]
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count
+         FROM subscriptions s
+         LEFT JOIN user_profiles up ON up.clerk_user_id = s.subscriber_clerk_user_id
+         LEFT JOIN creator_profiles cp ON cp.clerk_user_id = s.creator_clerk_user_id
+         WHERE ${where}`,
+        params
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status IN ('active','trialing','past_due')`
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status IN ('active','trialing','past_due') AND access_level = 'premium'`
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status IN ('active','trialing','past_due') AND access_level = 'basic'`
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status IN ('active','trialing','past_due') AND access_level = 'free'`
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status IN ('active','trialing','past_due') AND access_level = 'premium'`
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count FROM subscriptions WHERE status IN ('past_due','canceled','expired')`
+      ),
+    ]);
 
-  const [userProfiles, creatorProfiles] = await Promise.all([
-    subscriberIds.length
-      ? UserProfileModel.find({ clerkUserId: { $in: subscriberIds } })
-      : [],
-    creatorIds.length
-      ? CreatorProfileModel.find({ clerkUserId: { $in: creatorIds } })
-      : [],
-  ]);
-  const userMap = buildUserNameMap(userProfiles);
-  const creatorMap = buildCreatorNameMap(creatorProfiles);
+  const rows: AdminSubscriberRow[] = pageRes.rows.map((sub) => ({
+    subscriptionId: sub.id,
+    subscriberClerkUserId: sub.subscriber_clerk_user_id,
+    name: shortName(sub.subscriber_name),
+    email: sub.subscriber_email,
+    avatarUrl: sub.avatar_url,
+    creatorName: sub.creator_name,
+    creatorSlug: sub.creator_slug,
+    plan: planLabel(sub.access_level),
+    accessLevel: (sub.access_level as PlanAccessLevel) ?? "free",
+    status: sub.status as AdminSubscriberRow["status"],
+    renewalLabel: formatRenewalLabel({
+      status: sub.status,
+      accessLevel: sub.access_level,
+      currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end) : null,
+      canceledAt: sub.canceled_at ? new Date(sub.canceled_at) : null,
+      cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
+    }),
+    engagement: classifyEngagement(sub.access_level),
+    startedAt: new Date(sub.started_at ?? sub.created_at).toISOString(),
+  }));
 
-  const rows: AdminSubscriberRow[] = subscriptions.map((sub) => {
-    const userInfo = userMap.get(sub.subscriberClerkUserId);
-    const creatorInfo = creatorMap.get(sub.creatorClerkUserId);
-    return {
-      subscriptionId: sub._id.toString(),
-      subscriberClerkUserId: sub.subscriberClerkUserId,
-      name: userInfo?.name ?? "Unknown",
-      email: userInfo?.email ?? "",
-      avatarUrl: userInfo?.avatarUrl ?? "",
-      creatorName: creatorInfo?.creatorName ?? "Unknown creator",
-      creatorSlug: creatorInfo?.creatorSlug ?? "",
-      plan: planLabel(sub.accessLevel),
-      accessLevel: (sub.accessLevel as PlanAccessLevel) ?? "free",
-      status: sub.status as AdminSubscriberRow["status"],
-      renewalLabel: formatRenewalLabel({
-        status: sub.status,
-        accessLevel: sub.accessLevel,
-        currentPeriodEnd: sub.currentPeriodEnd,
-        canceledAt: sub.canceledAt,
-        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
-      }),
-      engagement: classifyEngagement(sub.accessLevel),
-      startedAt: (sub.startedAt ?? sub.createdAt).toISOString(),
-    };
-  });
-
-  const activeRows = rows.filter((r) =>
-    ACTIVE_STATUSES.includes(r.status as (typeof ACTIVE_STATUSES)[number])
-  );
-  const premiumActive = activeRows.filter((r) => r.accessLevel === "premium");
-  const basicActive = activeRows.filter((r) => r.accessLevel === "basic");
-  const freeActive = activeRows.filter((r) => r.accessLevel === "free");
-  const highEngagement = activeRows.filter((r) => r.engagement === "High");
-  const churnRisk = rows.filter(
-    (r) =>
-      r.status === "past_due" ||
-      r.status === "canceled" ||
-      r.status === "expired"
-  );
-
-  const total = activeRows.length || 1;
+  const denom = activeCount || 1;
 
   return {
     metrics: {
-      activeSubscribers: activeRows.length,
-      premiumRatioPercent:
-        Math.round((premiumActive.length / total) * 1000) / 10,
-      highEngagementCount: highEngagement.length,
-      churnRiskCount: churnRisk.length,
+      activeSubscribers: activeCount,
+      premiumRatioPercent: Math.round((premiumCount / denom) * 1000) / 10,
+      highEngagementCount: highCount,
+      churnRiskCount,
     },
     subscribers: rows,
     planDistribution: {
-      freePercent: Math.round((freeActive.length / total) * 1000) / 10,
-      basicPercent: Math.round((basicActive.length / total) * 1000) / 10,
-      premiumPercent: Math.round((premiumActive.length / total) * 1000) / 10,
+      freePercent: Math.round((freeCount / denom) * 1000) / 10,
+      basicPercent: Math.round((basicCount / denom) * 1000) / 10,
+      premiumPercent: Math.round((premiumCount / denom) * 1000) / 10,
     },
+    page: adminPageMeta(total, list),
   };
 }
 
 // ──────────────────────────────────────────────────────────────
 // /admin/plans
 // ──────────────────────────────────────────────────────────────
-export async function getAdminPlans(): Promise<AdminPlansResponse> {
+export async function getAdminPlans(
+  list: AdminListQuery = emptyListQuery()
+): Promise<AdminPlansResponse> {
   await connectToMongoDB();
 
-  const [plans, activeSubs, creators] = await Promise.all([
-    PlanModel.find({}).sort({ createdAt: -1 }),
-    SubscriptionModel.find({ status: { $in: [...ACTIVE_STATUSES] } }),
-    CreatorProfileModel.find({}),
-  ]);
-
-  const creatorMap = buildCreatorNameMap(creators);
-
-  const subscribersByPlanId = new Map<string, number>();
-  const subscribersByAccessLevel: Record<PlanAccessLevel, number> = {
-    free: 0,
-    basic: 0,
-    premium: 0,
-  };
-  for (const sub of activeSubs) {
-    if (sub.planId) {
-      const key = sub.planId.toString();
-      subscribersByPlanId.set(key, (subscribersByPlanId.get(key) ?? 0) + 1);
-    }
-    const access = sub.accessLevel as PlanAccessLevel;
-    subscribersByAccessLevel[access] += 1;
+  const params: unknown[] = [];
+  let where = "TRUE";
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    where = `(p.name ILIKE $1 OR COALESCE(cp.creator_name,'') ILIKE $1 OR p.access_level ILIKE $1)`;
   }
 
-  const planRows: AdminPlanRow[] = plans.map((plan) => ({
-    id: plan._id.toString(),
-    creatorClerkUserId: plan.creatorClerkUserId,
-    creatorName: creatorMap.get(plan.creatorClerkUserId)?.creatorName ?? "Unknown creator",
-    creatorSlug: creatorMap.get(plan.creatorClerkUserId)?.creatorSlug ?? "",
-    name: plan.name,
-    accessLevel: plan.accessLevel as PlanAccessLevel,
-    priceMonthly: asNumber(plan.priceMonthly),
-    isActive: plan.isActive ?? false,
-    subscribersCount: subscribersByPlanId.get(plan._id.toString()) ?? 0,
+  const [total, pageRes, planAgg, subAgg, topCreators, totalActivePlans] = await Promise.all([
+    sqlCount(
+      `SELECT COUNT(*)::text AS count
+       FROM plans p
+       LEFT JOIN creator_profiles cp ON cp.clerk_user_id = p.creator_clerk_user_id
+       WHERE ${where}`,
+      params
+    ),
+    pgQuery<{
+      id: string;
+      creator_clerk_user_id: string;
+      name: string;
+      access_level: string;
+      price_monthly: string | number;
+      is_active: boolean;
+      creator_name: string;
+      creator_slug: string;
+    }>(
+      `SELECT p.id::text AS id, p.creator_clerk_user_id, p.name, p.access_level,
+              p.price_monthly, p.is_active,
+              COALESCE(cp.creator_name, 'Unknown creator') AS creator_name,
+              COALESCE(cp.creator_slug, '') AS creator_slug
+       FROM plans p
+       LEFT JOIN creator_profiles cp ON cp.clerk_user_id = p.creator_clerk_user_id
+       WHERE ${where}
+       ORDER BY p.created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, list.pageSize, list.skip]
+    ),
+    pgQuery<{
+      access_level: string;
+      plan_count: string;
+      active_plan_count: string;
+      avg_price: string;
+    }>(
+      `SELECT access_level,
+              COUNT(*)::text AS plan_count,
+              COUNT(*) FILTER (WHERE is_active)::text AS active_plan_count,
+              COALESCE(AVG(price_monthly) FILTER (WHERE is_active), 0)::text AS avg_price
+       FROM plans
+       GROUP BY access_level`
+    ),
+    pgQuery<{ access_level: string; n: string; mrr: string }>(
+      `SELECT access_level, COUNT(*)::text AS n,
+              COALESCE(SUM(ROUND(price_monthly * 100)),0)::text AS mrr
+       FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')
+       GROUP BY access_level`
+    ),
+    pgQuery<{ access_level: string; creator_name: string }>(
+      `SELECT DISTINCT ON (access_level) access_level, creator_name
+       FROM (
+         SELECT s.access_level, COALESCE(cp.creator_name, '—') AS creator_name, COUNT(*) AS n
+         FROM subscriptions s
+         LEFT JOIN creator_profiles cp ON cp.clerk_user_id = s.creator_clerk_user_id
+         WHERE s.status IN ('active','trialing','past_due')
+         GROUP BY s.access_level, COALESCE(cp.creator_name, '—')
+       ) ranked
+       ORDER BY access_level, n DESC`
+    ),
+    sqlCount(`SELECT COUNT(*)::text AS count FROM plans WHERE is_active IS TRUE`),
+  ]);
+
+  const planIds = pageRes.rows.map((row) => row.id).filter(Boolean);
+  const subCounts =
+    planIds.length > 0
+      ? await pgQuery<{ plan_id: string; n: string }>(
+          `SELECT plan_id::text AS plan_id, COUNT(*)::text AS n
+           FROM subscriptions
+           WHERE status IN ('active','trialing','past_due')
+             AND plan_id = ANY($1::uuid[])
+           GROUP BY plan_id`,
+          [planIds]
+        )
+      : { rows: [] as Array<{ plan_id: string; n: string }> };
+  const subscribersByPlanId = new Map(
+    subCounts.rows.map((row) => [row.plan_id, Number(row.n)])
+  );
+
+  const planRows: AdminPlanRow[] = pageRes.rows.map((row) => ({
+    id: row.id,
+    creatorClerkUserId: row.creator_clerk_user_id,
+    creatorName: row.creator_name,
+    creatorSlug: row.creator_slug,
+    name: row.name,
+    accessLevel: row.access_level as PlanAccessLevel,
+    priceMonthly: asNumber(row.price_monthly),
+    isActive: Boolean(row.is_active),
+    subscribersCount: subscribersByPlanId.get(row.id) ?? 0,
   }));
 
-  const groups: AdminPlanGroup[] = (
-    ["free", "basic", "premium"] as PlanAccessLevel[]
-  ).map((accessLevel) => {
-    const planSubset = plans.filter((p) => p.accessLevel === accessLevel);
-    const activePlans = planSubset.filter((p) => p.isActive);
-    const totalSubscribers = subscribersByAccessLevel[accessLevel];
-    const totalMrrCents = activeSubs
-      .filter((s) => s.accessLevel === accessLevel)
-      .reduce((acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100), 0);
-    const averagePrice = activePlans.length
-      ? Math.round(
-          (activePlans.reduce((acc, p) => acc + asNumber(p.priceMonthly), 0) /
-            activePlans.length) *
-            100
-        ) / 100
-      : 0;
-    const planSubsCounts = planSubset
-      .map((p) => ({
-        creator: creatorMap.get(p.creatorClerkUserId)?.creatorName ?? "—",
-        count: subscribersByPlanId.get(p._id.toString()) ?? 0,
-      }))
-      .sort((a, b) => b.count - a.count);
-    return {
-      accessLevel,
-      label: planLabel(accessLevel),
-      planCount: planSubset.length,
-      activePlanCount: activePlans.length,
-      totalSubscribers,
-      averagePrice,
-      totalMrrCents,
-      topCreatorName: planSubsCounts[0]?.creator ?? "—",
-    };
-  });
+  const planAggByLevel = new Map(planAgg.rows.map((row) => [row.access_level, row]));
+  const subAggByLevel = new Map(subAgg.rows.map((row) => [row.access_level, row]));
+  const topByLevel = new Map(topCreators.rows.map((row) => [row.access_level, row.creator_name]));
+  const subscribersByAccessLevel: Record<PlanAccessLevel, number> = {
+    free: Number(subAggByLevel.get("free")?.n ?? 0),
+    basic: Number(subAggByLevel.get("basic")?.n ?? 0),
+    premium: Number(subAggByLevel.get("premium")?.n ?? 0),
+  };
 
-  const totalActivePlans = plans.filter((p) => p.isActive).length;
+  const groups: AdminPlanGroup[] = (["free", "basic", "premium"] as PlanAccessLevel[]).map(
+    (accessLevel) => {
+      const agg = planAggByLevel.get(accessLevel);
+      return {
+        accessLevel,
+        label: planLabel(accessLevel),
+        planCount: Number(agg?.plan_count ?? 0),
+        activePlanCount: Number(agg?.active_plan_count ?? 0),
+        totalSubscribers: subscribersByAccessLevel[accessLevel],
+        averagePrice: Math.round(asNumber(agg?.avg_price) * 100) / 100,
+        totalMrrCents: Number(subAggByLevel.get(accessLevel)?.mrr ?? 0),
+        topCreatorName: topByLevel.get(accessLevel) ?? "—",
+      };
+    }
+  );
 
-  // Most popular = group with the most active subscribers
-  const mostPopular = [...groups].sort(
-    (a, b) => b.totalSubscribers - a.totalSubscribers
-  )[0];
-  // Top conversion = group with the highest paid/total ratio (approximate
-  // by looking at premium subscriber share among paid). We just surface
-  // "Premium" by convention when at least one premium sub exists, else "—".
+  const mostPopular = [...groups].sort((a, b) => b.totalSubscribers - a.totalSubscribers)[0];
   const topConversion =
     subscribersByAccessLevel.premium > 0
       ? "Premium"
@@ -816,55 +1036,96 @@ export async function getAdminPlans(): Promise<AdminPlansResponse> {
     },
     groups,
     plans: planRows,
+    page: adminPageMeta(total, list),
   };
 }
 
 // ──────────────────────────────────────────────────────────────
 // /admin/content
 // ──────────────────────────────────────────────────────────────
-export async function getAdminContent(): Promise<AdminContentResponse> {
+export async function getAdminContent(
+  list: AdminListQuery = emptyListQuery()
+): Promise<AdminContentResponse> {
   await connectToMongoDB();
 
-  const [contentDocs, creators] = await Promise.all([
-    ContentModel.find({}).sort({ createdAt: -1 }),
-    CreatorProfileModel.find({}),
-  ]);
-  const creatorMap = buildCreatorNameMap(creators);
+  const params: unknown[] = [];
+  let where = "TRUE";
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    where = `(c.title ILIKE $1 OR COALESCE(c.slug,'') ILIKE $1 OR COALESCE(cp.creator_name,'') ILIKE $1)`;
+  }
 
-  const rows: AdminContentRow[] = contentDocs.map((doc) => ({
-    id: doc._id.toString(),
+  const [contentRows, total, totalPublished, totalResources, pendingReview, viewsRow] =
+    await Promise.all([
+      pgQuery<{
+        id: string;
+        title: string;
+        content_type: string;
+        file_subtype: string | null;
+        required_plan: string;
+        status: string;
+        views_count: string | number;
+        downloads_count: string | number;
+        created_at: string;
+        creator_name: string;
+        creator_slug: string;
+      }>(
+        `SELECT c.id::text AS id, c.title, c.content_type, c.file_subtype, c.required_plan,
+                c.status, c.views_count, c.downloads_count, c.created_at,
+                COALESCE(cp.creator_name, 'Unknown creator') AS creator_name,
+                COALESCE(cp.creator_slug, '') AS creator_slug
+         FROM content c
+         LEFT JOIN creator_profiles cp ON cp.clerk_user_id = c.creator_clerk_user_id
+         WHERE ${where}
+         ORDER BY c.created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, list.pageSize, list.skip]
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count
+         FROM content c
+         LEFT JOIN creator_profiles cp ON cp.clerk_user_id = c.creator_clerk_user_id
+         WHERE ${where}`,
+        params
+      ),
+      ContentModel.countDocuments({ status: "published" }),
+      ContentModel.countDocuments({ contentType: "file" }),
+      ContentModel.countDocuments({ status: "draft" }),
+      sqlSum(`SELECT COALESCE(SUM(views_count),0)::text AS sum FROM content`),
+    ]);
+
+  const rows: AdminContentRow[] = contentRows.rows.map((doc) => ({
+    id: doc.id,
     title: doc.title,
-    contentType: doc.contentType as "video" | "article" | "file",
-    fileSubtype: (doc.fileSubtype ?? "") as "pdf" | "zip" | "rar" | "",
-    accessLevel: doc.requiredPlan as PlanAccessLevel,
+    contentType: doc.content_type as "video" | "article" | "file",
+    fileSubtype: (doc.file_subtype ?? "") as "pdf" | "zip" | "rar" | "",
+    accessLevel: doc.required_plan as PlanAccessLevel,
     status: doc.status as "draft" | "published" | "archived",
-    creatorName: creatorMap.get(doc.creatorClerkUserId)?.creatorName ?? "Unknown creator",
-    creatorSlug: creatorMap.get(doc.creatorClerkUserId)?.creatorSlug ?? "",
-    viewsCount: asNumber(doc.viewsCount),
-    downloadsCount: asNumber(doc.downloadsCount),
-    createdAt: doc.createdAt.toISOString(),
+    creatorName: doc.creator_name,
+    creatorSlug: doc.creator_slug,
+    viewsCount: asNumber(doc.views_count),
+    downloadsCount: asNumber(doc.downloads_count),
+    createdAt: new Date(doc.created_at).toISOString(),
   }));
-
-  const totalPublished = rows.filter((r) => r.status === "published").length;
-  const totalResources = rows.filter((r) => r.contentType === "file").length;
-  const totalViews = rows.reduce((acc, r) => acc + r.viewsCount, 0);
-  const pendingReview = rows.filter((r) => r.status === "draft").length;
 
   return {
     metrics: {
       totalPublished,
       totalResources,
-      totalViews,
+      totalViews: viewsRow,
       pendingReview,
     },
     content: rows,
+    page: adminPageMeta(total, list),
   };
 }
 
 // ──────────────────────────────────────────────────────────────
 // /admin/subscriptions
 // ──────────────────────────────────────────────────────────────
-export async function getAdminSubscriptions(): Promise<AdminSubscriptionsResponse> {
+export async function getAdminSubscriptions(
+  list: AdminListQuery = emptyListQuery()
+): Promise<AdminSubscriptionsResponse> {
   await connectToMongoDB();
 
   const todayStart = new Date();
@@ -872,172 +1133,224 @@ export async function getAdminSubscriptions(): Promise<AdminSubscriptionsRespons
   const todayEnd = new Date();
   todayEnd.setHours(23, 59, 59, 999);
 
-  const [subscriptions, failedCharges, renewalsToday] = await Promise.all([
-    SubscriptionModel.find({}).sort({ updatedAt: -1, createdAt: -1 }),
-    PaymentModel.countDocuments({ status: "failed" }),
-    SubscriptionModel.countDocuments({
-      currentPeriodEnd: { $gte: todayStart, $lte: todayEnd },
-      status: { $in: [...ACTIVE_STATUSES] },
-    }),
-  ]);
+  const params: unknown[] = [];
+  let where = "TRUE";
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    where = `(COALESCE(up.display_name,'') ILIKE $1 OR COALESCE(up.full_name,'') ILIKE $1 OR COALESCE(up.email,'') ILIKE $1 OR COALESCE(cp.creator_name,'') ILIKE $1 OR s.access_level ILIKE $1 OR s.status ILIKE $1)`;
+  }
 
-  const subscriberIds = Array.from(
-    new Set(subscriptions.map((s) => s.subscriberClerkUserId))
-  );
-  const creatorIds = Array.from(
-    new Set(subscriptions.map((s) => s.creatorClerkUserId))
-  );
-  const [userProfiles, creators] = await Promise.all([
-    subscriberIds.length
-      ? UserProfileModel.find({ clerkUserId: { $in: subscriberIds } })
-      : [],
-    creatorIds.length
-      ? CreatorProfileModel.find({ clerkUserId: { $in: creatorIds } })
-      : [],
-  ]);
-  const userMap = buildUserNameMap(userProfiles);
-  const creatorMap = buildCreatorNameMap(creators);
-
-  const rows: AdminSubscriptionRow[] = subscriptions.map((sub) => {
-    const u = userMap.get(sub.subscriberClerkUserId);
-    const c = creatorMap.get(sub.creatorClerkUserId);
-    return {
-      id: sub._id.toString(),
-      subscriberName: u?.name ?? "Unknown",
-      subscriberEmail: u?.email ?? "",
-      creatorName: c?.creatorName ?? "Unknown",
-      creatorSlug: c?.creatorSlug ?? "",
-      plan: planLabel(sub.accessLevel),
-      accessLevel: (sub.accessLevel as PlanAccessLevel) ?? "free",
-      status: sub.status as AdminSubscriptionRow["status"],
-      startedAt: (sub.startedAt ?? sub.createdAt).toISOString(),
-      renewalLabel: formatRenewalLabel({
-        status: sub.status,
-        accessLevel: sub.accessLevel,
-        currentPeriodEnd: sub.currentPeriodEnd,
-        canceledAt: sub.canceledAt,
-        cancelAtPeriodEnd: sub.cancelAtPeriodEnd,
+  const [pageRes, failedCharges, renewalsToday, total, activeCount, cancelled, pastDue] =
+    await Promise.all([
+      pgQuery<{
+        id: string;
+        access_level: string;
+        status: string;
+        started_at: string | null;
+        created_at: string;
+        current_period_end: string | null;
+        canceled_at: string | null;
+        cancel_at_period_end: boolean;
+        price_monthly: string | number;
+        subscriber_name: string;
+        subscriber_email: string;
+        creator_name: string;
+        creator_slug: string;
+      }>(
+        `SELECT s.id::text AS id, s.access_level, s.status, s.started_at, s.created_at,
+                s.current_period_end, s.canceled_at, s.cancel_at_period_end, s.price_monthly,
+                COALESCE(up.display_name, up.full_name, up.email, 'Unknown') AS subscriber_name,
+                COALESCE(up.email, '') AS subscriber_email,
+                COALESCE(cp.creator_name, 'Unknown') AS creator_name,
+                COALESCE(cp.creator_slug, '') AS creator_slug
+         FROM subscriptions s
+         LEFT JOIN user_profiles up ON up.clerk_user_id = s.subscriber_clerk_user_id
+         LEFT JOIN creator_profiles cp ON cp.clerk_user_id = s.creator_clerk_user_id
+         WHERE ${where}
+         ORDER BY s.updated_at DESC, s.created_at DESC
+         LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+        [...params, list.pageSize, list.skip]
+      ),
+      PaymentModel.countDocuments({ status: "failed" }),
+      SubscriptionModel.countDocuments({
+        currentPeriodEnd: { $gte: todayStart, $lte: todayEnd },
+        status: { $in: [...ACTIVE_STATUSES] },
       }),
-      priceMonthly: asNumber(sub.priceMonthly),
-    };
-  });
+      sqlCount(
+        `SELECT COUNT(*)::text AS count
+         FROM subscriptions s
+         LEFT JOIN user_profiles up ON up.clerk_user_id = s.subscriber_clerk_user_id
+         LEFT JOIN creator_profiles cp ON cp.clerk_user_id = s.creator_clerk_user_id
+         WHERE ${where}`,
+        params
+      ),
+      SubscriptionModel.countDocuments({ status: { $in: [...ACTIVE_STATUSES] } }),
+      SubscriptionModel.countDocuments({ status: "canceled" }),
+      SubscriptionModel.countDocuments({ status: "past_due" }),
+    ]);
 
-  const active = rows.filter((r) =>
-    ACTIVE_STATUSES.includes(r.status as (typeof ACTIVE_STATUSES)[number])
-  );
-  const cancelled = rows.filter((r) => r.status === "canceled").length;
-  const pastDue = rows.filter((r) => r.status === "past_due").length;
+  const rows: AdminSubscriptionRow[] = pageRes.rows.map((sub) => ({
+    id: sub.id,
+    subscriberName: sub.subscriber_name,
+    subscriberEmail: sub.subscriber_email,
+    creatorName: sub.creator_name,
+    creatorSlug: sub.creator_slug,
+    plan: planLabel(sub.access_level),
+    accessLevel: (sub.access_level as PlanAccessLevel) ?? "free",
+    status: sub.status as AdminSubscriptionRow["status"],
+    startedAt: new Date(sub.started_at ?? sub.created_at).toISOString(),
+    renewalLabel: formatRenewalLabel({
+      status: sub.status,
+      accessLevel: sub.access_level,
+      currentPeriodEnd: sub.current_period_end ? new Date(sub.current_period_end) : null,
+      canceledAt: sub.canceled_at ? new Date(sub.canceled_at) : null,
+      cancelAtPeriodEnd: Boolean(sub.cancel_at_period_end),
+    }),
+    priceMonthly: asNumber(sub.price_monthly),
+  }));
 
   return {
     metrics: {
-      activeSubscriptions: active.length,
+      activeSubscriptions: activeCount,
       renewalsToday,
       failedCharges,
       pendingChurn: cancelled,
     },
     subscriptions: rows,
     statusBreakdown: {
-      active: active.length,
+      active: activeCount,
       cancelled,
       pastDue,
     },
+    page: adminPageMeta(total, list),
   };
 }
 
 // ──────────────────────────────────────────────────────────────
 // /admin/payments
 // ──────────────────────────────────────────────────────────────
-export async function getAdminPayments(): Promise<AdminPaymentsResponse> {
+export async function getAdminPayments(
+  list: AdminListQuery = emptyListQuery()
+): Promise<AdminPaymentsResponse> {
   await connectToMongoDB();
 
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-  const [paymentDocs, failedDocs] = await Promise.all([
-    PaymentModel.find({}).sort({ paidAt: -1, createdAt: -1 }).limit(100),
-    PaymentModel.find({ status: "failed" }).sort({ createdAt: -1 }),
+  const params: unknown[] = [];
+  let where = "TRUE";
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    where = `(COALESCE(up.display_name,'') ILIKE $1 OR COALESCE(up.email,'') ILIKE $1 OR COALESCE(cp.creator_name,'') ILIKE $1 OR p.status ILIKE $1 OR COALESCE(p.stripe_invoice_id,'') ILIKE $1)`;
+  }
+
+  const [pageRes, total] = await Promise.all([
+    pgQuery<{
+      id: string;
+      subscriber_clerk_user_id: string;
+      creator_clerk_user_id: string;
+      plan_id: string | null;
+      amount_cents: string | number;
+      currency: string;
+      status: string;
+      stripe_charge_id: string | null;
+      stripe_payment_intent_id: string | null;
+      stripe_invoice_id: string | null;
+      paid_at: string | null;
+      created_at: string;
+      receipt_url: string | null;
+      subscriber_name: string;
+      subscriber_email: string;
+      creator_name: string;
+    }>(
+      `SELECT p.id::text AS id, p.subscriber_clerk_user_id, p.creator_clerk_user_id, p.plan_id::text AS plan_id,
+              p.amount_cents, p.currency, p.status, p.stripe_charge_id, p.stripe_payment_intent_id,
+              p.stripe_invoice_id, p.paid_at, p.created_at, p.receipt_url,
+              COALESCE(up.display_name, up.full_name, up.email, 'Unknown') AS subscriber_name,
+              COALESCE(up.email, '') AS subscriber_email,
+              COALESCE(cp.creator_name, 'Unknown') AS creator_name
+       FROM payments p
+       LEFT JOIN user_profiles up ON up.clerk_user_id = p.subscriber_clerk_user_id
+       LEFT JOIN creator_profiles cp ON cp.clerk_user_id = p.creator_clerk_user_id
+       WHERE ${where}
+       ORDER BY p.paid_at DESC NULLS LAST, p.created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, list.pageSize, list.skip]
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count
+       FROM payments p
+       LEFT JOIN user_profiles up ON up.clerk_user_id = p.subscriber_clerk_user_id
+       LEFT JOIN creator_profiles cp ON cp.clerk_user_id = p.creator_clerk_user_id
+       WHERE ${where}`,
+      params
+    ),
   ]);
 
-  const subscriberIds = Array.from(
-    new Set(paymentDocs.map((p) => p.subscriberClerkUserId))
-  );
-  const creatorIds = Array.from(
-    new Set(paymentDocs.map((p) => p.creatorClerkUserId))
-  );
-  const [userProfiles, creators, plans] = await Promise.all([
-    subscriberIds.length
-      ? UserProfileModel.find({ clerkUserId: { $in: subscriberIds } })
-      : [],
-    creatorIds.length
-      ? CreatorProfileModel.find({ clerkUserId: { $in: creatorIds } })
-      : [],
-    PlanModel.find({}),
-  ]);
-  const userMap = buildUserNameMap(userProfiles);
-  const creatorMap = buildCreatorNameMap(creators);
+  const planIds = Array.from(
+    new Set(pageRes.rows.map((p) => p.plan_id).filter(Boolean))
+  ) as string[];
+  const plans = planIds.length ? await PlanModel.find({ _id: { $in: planIds } }) : [];
   const planLevelById = new Map(
     plans.map((plan) => [plan._id.toString(), plan.accessLevel as AdminPaymentRow["accessLevel"]])
   );
 
-  const rows: AdminPaymentRow[] = paymentDocs.map((doc) => ({
-    id: doc._id.toString(),
-    subscriberName: userMap.get(doc.subscriberClerkUserId)?.name ?? "Unknown",
-    subscriberEmail: userMap.get(doc.subscriberClerkUserId)?.email ?? "",
-    creatorName: creatorMap.get(doc.creatorClerkUserId)?.creatorName ?? "Unknown",
-    amountCents: asNumber(doc.amountCents),
+  const rows: AdminPaymentRow[] = pageRes.rows.map((doc) => ({
+    id: doc.id,
+    subscriberName: doc.subscriber_name,
+    subscriberEmail: doc.subscriber_email,
+    creatorName: doc.creator_name,
+    amountCents: asNumber(doc.amount_cents),
     currency: doc.currency,
     status: doc.status as AdminPaymentRow["status"],
-    accessLevel: doc.planId
-      ? planLevelById.get(doc.planId.toString()) ?? null
-      : null,
-    paymentMethodLabel: doc.stripeChargeId || doc.stripePaymentIntentId ? "Stripe" : "—",
-    paidAt: doc.paidAt ? doc.paidAt.toISOString() : null,
-    createdAt: doc.createdAt.toISOString(),
-    receiptUrl: doc.receiptUrl ?? "",
+    accessLevel: doc.plan_id ? planLevelById.get(doc.plan_id) ?? null : null,
+    paymentMethodLabel: doc.stripe_charge_id || doc.stripe_payment_intent_id ? "Stripe" : "—",
+    paidAt: doc.paid_at ? new Date(doc.paid_at).toISOString() : null,
+    createdAt: new Date(doc.created_at).toISOString(),
+    receiptUrl: doc.receipt_url ?? "",
     hasStripeReference: Boolean(
-      doc.stripePaymentIntentId || doc.stripeChargeId || doc.stripeInvoiceId
+      doc.stripe_payment_intent_id || doc.stripe_charge_id || doc.stripe_invoice_id
     ),
   }));
 
-  const recentSucceeded = await PaymentModel.countDocuments({
-    status: "succeeded",
-    paidAt: { $gte: thirtyDaysAgo },
-  });
-  const recentFailed = await PaymentModel.countDocuments({
-    status: "failed",
-    createdAt: { $gte: thirtyDaysAgo },
-  });
-  const recentTotal = recentSucceeded + recentFailed;
-
-  const volume30dCents = await PaymentModel.aggregate<{
-    _id: null;
-    total: number;
-  }>([
-    {
-      $match: {
-        status: "succeeded",
-        paidAt: { $gte: thirtyDaysAgo },
-      },
-    },
-    { $group: { _id: null, total: { $sum: "$amountCents" } } },
+  const [
+    recentSucceeded,
+    recentFailed,
+    volume30dCents,
+    refunds,
+    failedCount,
+    atRiskCents,
+  ] = await Promise.all([
+    PaymentModel.countDocuments({
+      status: "succeeded",
+      paidAt: { $gte: thirtyDaysAgo },
+    }),
+    PaymentModel.countDocuments({
+      status: "failed",
+      createdAt: { $gte: thirtyDaysAgo },
+    }),
+    sqlSum(
+      `SELECT COALESCE(SUM(amount_cents),0)::text AS sum
+       FROM payments WHERE status = 'succeeded' AND paid_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+    PaymentModel.countDocuments({ status: "refunded" }),
+    PaymentModel.countDocuments({ status: "failed" }),
+    sqlSum(
+      `SELECT COALESCE(SUM(amount_cents),0)::text AS sum
+       FROM payments WHERE status = 'failed'`
+    ),
   ]);
+  const recentTotal = recentSucceeded + recentFailed;
 
   const successRatePercent =
     recentTotal > 0
       ? Math.round((recentSucceeded / recentTotal) * 1000) / 10
       : 100;
 
-  const refunds = await PaymentModel.countDocuments({ status: "refunded" });
-
-  const failedCount = failedDocs.length;
-  const atRiskCents = failedDocs.reduce(
-    (acc, p) => acc + asNumber(p.amountCents),
-    0
-  );
-
   return {
     metrics: {
-      volume30dCents: volume30dCents[0]?.total ?? 0,
+      volume30dCents,
       successRatePercent,
       failedCharges: failedCount,
       refunds,
@@ -1049,50 +1362,71 @@ export async function getAdminPayments(): Promise<AdminPaymentsResponse> {
       retryingCount: 0,
       actionNeededCount: failedCount,
     },
+    page: adminPageMeta(total, list),
   };
 }
 
 // ──────────────────────────────────────────────────────────────
 // /admin/notifications
 // ──────────────────────────────────────────────────────────────
-export async function getAdminNotifications(): Promise<AdminNotificationsResponse> {
+export async function getAdminNotifications(
+  list: AdminListQuery = emptyListQuery()
+): Promise<AdminNotificationsResponse> {
   await connectToMongoDB();
 
-  const notificationDocs = await NotificationModel.find({})
-    .sort({ createdAt: -1 })
-    .limit(150);
+  const params: unknown[] = [];
+  let where = "TRUE";
+  if (list.q) {
+    params.push(ilikeContains(list.q));
+    where = `(n.title ILIKE $1 OR COALESCE(n.message,'') ILIKE $1 OR COALESCE(up.display_name,'') ILIKE $1 OR COALESCE(up.email,'') ILIKE $1 OR n.category ILIKE $1)`;
+  }
 
-  const recipientIds = Array.from(
-    new Set(notificationDocs.map((n) => n.recipientClerkUserId))
-  );
-  const userProfiles = recipientIds.length
-    ? await UserProfileModel.find({ clerkUserId: { $in: recipientIds } })
-    : [];
-  const userMap = buildUserNameMap(userProfiles);
+  const [pageRes, totalSystemAlerts] = await Promise.all([
+    pgQuery<{
+      id: string;
+      category: string;
+      title: string;
+      recipient_clerk_user_id: string;
+      is_read: boolean;
+      created_at: string;
+      recipient_name: string;
+    }>(
+      `SELECT n.id::text AS id, n.category, n.title, n.recipient_clerk_user_id, n.is_read, n.created_at,
+              COALESCE(up.display_name, up.full_name, up.email, 'Unknown') AS recipient_name
+       FROM notifications n
+       LEFT JOIN user_profiles up ON up.clerk_user_id = n.recipient_clerk_user_id
+       WHERE ${where}
+       ORDER BY n.created_at DESC
+       LIMIT $${params.length + 1} OFFSET $${params.length + 2}`,
+      [...params, list.pageSize, list.skip]
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count
+       FROM notifications n
+       LEFT JOIN user_profiles up ON up.clerk_user_id = n.recipient_clerk_user_id
+       WHERE ${where}`,
+      params
+    ),
+  ]);
 
-  const rows: AdminNotificationRow[] = notificationDocs.map((doc) => ({
-    id: doc._id.toString(),
+  const rows: AdminNotificationRow[] = pageRes.rows.map((doc) => ({
+    id: doc.id,
     category: doc.category as AdminNotificationRow["category"],
     title: doc.title,
-    recipientName: userMap.get(doc.recipientClerkUserId)?.name ?? "Unknown",
-    recipientClerkUserId: doc.recipientClerkUserId,
-    isRead: doc.isRead ?? false,
-    createdAt: doc.createdAt.toISOString(),
+    recipientName: doc.recipient_name,
+    recipientClerkUserId: doc.recipient_clerk_user_id,
+    isRead: doc.is_read ?? false,
+    createdAt: new Date(doc.created_at).toISOString(),
   }));
-
-  const totalSystemAlerts = await NotificationModel.countDocuments({});
 
   return {
     metrics: {
       totalSystemAlerts,
-      // Once we add a delivery channel that can fail (e.g. email),
-      // this becomes the fraction of successfully delivered events.
-      // Today every Mongo write that creates a notification is a
-      // successful in-app delivery, so 100% is honest.
       deliverySuccessPercent: 100,
       failedDelivery: 0,
     },
     notifications: rows,
+    page: adminPageMeta(totalSystemAlerts, list),
   };
 }
 
@@ -1112,183 +1446,142 @@ export async function getAdminAnalytics(
   await connectToMongoDB();
 
   const buckets = RANGE_BUCKETS[range] ?? 6;
-
   const thirtyDaysAgo = new Date();
   thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const settings = await loadPlatformSettings();
+  const feeBps = settings.platformFeeBps;
 
-  const [activeSubs, content, allSubs, creators, paymentsSucceeded, paymentsFailed] =
-    await Promise.all([
-      SubscriptionModel.find({ status: { $in: [...ACTIVE_STATUSES] } }),
-      ContentModel.find(
-        { status: { $ne: "archived" } },
-        { title: 1, contentType: 1, viewsCount: 1, downloadsCount: 1, creatorClerkUserId: 1 }
-      ),
-      SubscriptionModel.find({}),
-      CreatorProfileModel.find({}),
-      PaymentModel.countDocuments({ status: "succeeded" }),
-      PaymentModel.countDocuments({ status: "failed" }),
-    ]);
+  const [
+    grossMrrCents,
+    activeSubCount,
+    paidSubCount,
+    activeSubscriberCount,
+    totalViews,
+    cancelled30d,
+    succeeded30d,
+    failed30d,
+    collected30dCents,
+  ] = await Promise.all([
+    sqlSum(
+      `SELECT COALESCE(SUM(ROUND(price_monthly * 100)),0)::text AS sum
+       FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')
+         AND access_level IS DISTINCT FROM 'free'`
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')`
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM subscriptions
+       WHERE status IN ('active','trialing','past_due')
+         AND access_level IS DISTINCT FROM 'free'`
+    ),
+    sqlCount(
+      `SELECT COUNT(DISTINCT subscriber_clerk_user_id)::text AS count
+       FROM subscriptions WHERE status IN ('active','trialing','past_due')`
+    ),
+    sqlSum(`SELECT COALESCE(SUM(views_count),0)::text AS sum FROM content`),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM subscriptions
+       WHERE status = 'canceled' AND canceled_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM payments
+       WHERE status = 'succeeded' AND paid_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+    sqlCount(
+      `SELECT COUNT(*)::text AS count FROM payments
+       WHERE status = 'failed' AND created_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+    sqlSum(
+      `SELECT COALESCE(SUM(amount_cents),0)::text AS sum
+       FROM payments WHERE status = 'succeeded' AND paid_at >= $1`,
+      [thirtyDaysAgo]
+    ),
+  ]);
 
-  const creatorMap = buildCreatorNameMap(creators);
-
-  const paidActive = activeSubs.filter((s) => s.accessLevel !== "free");
-  const platformMrrCents = paidActive.reduce(
-    (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
-    0
-  );
-  const totalActiveSubscribers = new Set(
-    activeSubs.map((s) => s.subscriberClerkUserId)
-  ).size;
-  const totalViews = content.reduce(
-    (acc, c) => acc + asNumber(c.viewsCount),
-    0
-  );
-  const premiumConversionPercent = activeSubs.length
-    ? Math.round((paidActive.length / activeSubs.length) * 1000) / 10
+  const premiumConversionPercent = activeSubCount
+    ? Math.round((paidSubCount / activeSubCount) * 1000) / 10
     : 0;
+  const churnDenom = activeSubCount + cancelled30d;
+  const churnRatePercent = churnDenom
+    ? Math.round((cancelled30d / churnDenom) * 1000) / 10
+    : 0;
+  const paymentDenom = succeeded30d + failed30d;
+  const failedPaymentRatioPercent = paymentDenom
+    ? Math.round((failed30d / paymentDenom) * 1000) / 10
+    : 0;
+  const platformTakeCents = Math.round((collected30dCents * feeBps) / 10000);
 
-  // Pull rolled-up daily snapshots once and group them by month so we
-  // can read MRR + acquisition counts straight from the Analytics
-  // collection. Falls back to live computation if no snapshots exist
-  // for a given month yet (cron hasn't run, or cron started recently).
-  const earliestMonthStart = startOfMonthsAgo(buckets - 1);
-  const dailySnapshots = await AnalyticsModel.find({
-    snapshotDate: { $gte: earliestMonthStart },
-  })
-    .sort({ snapshotDate: 1 })
-    .select(
-      "snapshotDate monthlyRecurringCents newSubscribersToday creatorClerkUserId"
-    )
-    .lean();
-
-  type RolledSnapshot = {
-    snapshotDate: Date;
-    monthlyRecurringCents: number;
-    newSubscribersToday: number;
-  };
-  const rolled: RolledSnapshot[] = dailySnapshots.map((doc) => ({
-    snapshotDate: new Date(
-      (doc as { snapshotDate: Date }).snapshotDate
-    ),
-    monthlyRecurringCents: asNumber(
-      (doc as { monthlyRecurringCents?: number }).monthlyRecurringCents
-    ),
-    newSubscribersToday: asNumber(
-      (doc as { newSubscribersToday?: number }).newSubscribersToday
-    ),
-  }));
-
-  // Trend (revenue) — bucketed by month over the requested range.
-  const trend = [];
+  const trend: AdminAnalyticsResponse["trend"] = [];
+  const acquisition: AdminAnalyticsResponse["acquisition"] = [];
   for (let i = buckets - 1; i >= 0; i -= 1) {
     const monthStart = startOfMonthsAgo(i);
     const monthEnd = startOfMonthsAgo(i - 1);
-    const inMonth = rolled.filter(
-      (s) => s.snapshotDate >= monthStart && s.snapshotDate < monthEnd
-    );
-    let valueCents = 0;
-    if (inMonth.length > 0) {
-      // Sum the latest snapshot per creator for that month so the
-      // platform MRR totals all creators correctly.
-      const latestPerCreator = new Map<string, number>();
-      for (const doc of dailySnapshots) {
-        const creatorId = (doc as { creatorClerkUserId?: string }).creatorClerkUserId ?? "";
-        const date = new Date((doc as { snapshotDate: Date }).snapshotDate);
-        if (date < monthStart || date >= monthEnd) continue;
-        latestPerCreator.set(
-          creatorId,
-          asNumber((doc as { monthlyRecurringCents?: number }).monthlyRecurringCents)
-        );
-      }
-      valueCents = [...latestPerCreator.values()].reduce(
-        (acc, v) => acc + v,
-        0
-      );
-    } else {
-      valueCents = paidActive
-        .filter((s) => {
-          const started = s.startedAt ?? s.createdAt;
-          return started && started >= monthStart && started < monthEnd;
-        })
-        .reduce(
-          (acc, s) => acc + Math.round(asNumber(s.priceMonthly) * 100),
-          0
-        );
-    }
+    const [valueCents, count] = await Promise.all([
+      sqlSum(
+        `SELECT COALESCE(SUM(amount_cents),0)::text AS sum
+         FROM payments
+         WHERE status = 'succeeded' AND paid_at >= $1 AND paid_at < $2`,
+        [monthStart, monthEnd]
+      ),
+      sqlCount(
+        `SELECT COUNT(*)::text AS count FROM subscriptions
+         WHERE created_at >= $1 AND created_at < $2`,
+        [monthStart, monthEnd]
+      ),
+    ]);
     trend.push({ label: monthLabel(monthStart), valueCents });
-  }
-
-  // Acquisition — count of NEW subscriptions per month (any tier).
-  // Prefer rolled-up `newSubscribersToday` summed over the month; fall
-  // back to counting from the raw Subscription collection.
-  const acquisition = [];
-  for (let i = buckets - 1; i >= 0; i -= 1) {
-    const monthStart = startOfMonthsAgo(i);
-    const monthEnd = startOfMonthsAgo(i - 1);
-    const inMonth = rolled.filter(
-      (s) => s.snapshotDate >= monthStart && s.snapshotDate < monthEnd
-    );
-    let count = 0;
-    if (inMonth.length > 0) {
-      count = inMonth.reduce((acc, s) => acc + s.newSubscribersToday, 0);
-    } else {
-      count = allSubs.filter((s) => {
-        const created = s.createdAt;
-        return created && created >= monthStart && created < monthEnd;
-      }).length;
-    }
     acquisition.push({ label: monthLabel(monthStart), count });
   }
 
-  // Top content (platform-wide)
-  const topContent = [...content]
-    .sort((a, b) => {
-      const aMetric =
-        a.contentType === "file"
-          ? asNumber(a.downloadsCount)
-          : asNumber(a.viewsCount);
-      const bMetric =
-        b.contentType === "file"
-          ? asNumber(b.downloadsCount)
-          : asNumber(b.viewsCount);
-      return bMetric - aMetric;
-    })
-    .slice(0, 5)
-    .map((doc) => {
-      const isFile = doc.contentType === "file";
-      const stat = isFile
-        ? `${asNumber(doc.downloadsCount).toLocaleString()} downloads`
-        : `${asNumber(doc.viewsCount).toLocaleString()} views`;
-      return {
-        id: doc._id.toString(),
-        title: doc.title,
-        primaryStat: stat,
-        creatorName:
-          creatorMap.get(doc.creatorClerkUserId)?.creatorName ?? "Unknown",
-      };
-    });
-
-  const cancelled30d = allSubs.filter(
-    (s) =>
-      s.status === "canceled" &&
-      s.canceledAt &&
-      s.canceledAt >= thirtyDaysAgo
-  ).length;
-  const churnRatePercent =
-    allSubs.length > 0
-      ? Math.round((cancelled30d / allSubs.length) * 1000) / 10
-      : 0;
-
-  const totalPayments = paymentsSucceeded + paymentsFailed;
-  const failedPaymentRatioPercent =
-    totalPayments > 0
-      ? Math.round((paymentsFailed / totalPayments) * 1000) / 10
-      : 0;
+  const topRes = await pgQuery<{
+    id: string;
+    title: string;
+    content_type: string;
+    views_count: string | number;
+    downloads_count: string | number;
+    creator_clerk_user_id: string;
+  }>(
+    `SELECT id::text, title, content_type, views_count, downloads_count, creator_clerk_user_id
+     FROM content
+     WHERE status IS DISTINCT FROM 'archived'
+     ORDER BY GREATEST(COALESCE(views_count,0), COALESCE(downloads_count,0)) DESC
+     LIMIT 5`
+  );
+  const topCreatorIds = Array.from(
+    new Set(topRes.rows.map((row) => row.creator_clerk_user_id).filter(Boolean))
+  );
+  const topCreators = topCreatorIds.length
+    ? await CreatorProfileModel.find({ clerkUserId: { $in: topCreatorIds } })
+    : [];
+  const creatorMap = buildCreatorNameMap(topCreators);
+  const topContent = topRes.rows.map((row) => {
+    const isFile = row.content_type === "file";
+    const downloads = asNumber(row.downloads_count);
+    const views = asNumber(row.views_count);
+    return {
+      id: String(row.id),
+      title: row.title,
+      primaryStat: isFile
+        ? `${downloads.toLocaleString()} downloads`
+        : `${views.toLocaleString()} views`,
+      creatorName: creatorMap.get(row.creator_clerk_user_id)?.creatorName ?? "Unknown",
+    };
+  });
 
   return {
     metrics: {
-      platformMrrCents,
-      activeSubscribers: totalActiveSubscribers,
+      platformMrrCents: grossMrrCents,
+      grossMrrCents,
+      collected30dCents,
+      platformTakeCents,
+      platformFeeBps: feeBps,
+      activeSubscribers: activeSubscriberCount,
       totalViews,
       premiumConversionPercent,
     },

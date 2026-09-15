@@ -33,6 +33,10 @@ export type AdminOverviewMetrics = {
   activeSubscribers: number;
   activeCreators: number;
   monthlyRevenueCents: number;
+  grossMrrCents: number;
+  collected30dCents: number;
+  platformTakeCents: number;
+  platformFeeBps: number;
   failedPayments: number;
   cancelledSubscribers30d: number;
   publishedContent: number;
@@ -61,6 +65,13 @@ export type AdminUserRow = {
   joinedAt: string;
 };
 
+export type AdminPageMeta = {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+};
+
 export type AdminUsersResponse = {
   metrics: {
     totalUsers: number;
@@ -69,6 +80,7 @@ export type AdminUsersResponse = {
     deactivated: number;
   };
   users: AdminUserRow[];
+  page: AdminPageMeta;
 };
 
 export type AdminCreatorRow = {
@@ -94,6 +106,7 @@ export type AdminCreatorsResponse = {
     pendingReview: number;
   };
   creators: AdminCreatorRow[];
+  page: AdminPageMeta;
 };
 
 export type AdminSubscriberRow = {
@@ -125,6 +138,7 @@ export type AdminSubscribersResponse = {
     basicPercent: number;
     premiumPercent: number;
   };
+  page: AdminPageMeta;
 };
 
 export type AdminPlanGroup = {
@@ -158,6 +172,7 @@ export type AdminPlansResponse = {
   };
   groups: AdminPlanGroup[];
   plans: AdminPlanRow[];
+  page: AdminPageMeta;
 };
 
 export type AdminContentRow = {
@@ -182,6 +197,7 @@ export type AdminContentResponse = {
     pendingReview: number;
   };
   content: AdminContentRow[];
+  page: AdminPageMeta;
 };
 
 export type AdminSubscriptionRow = {
@@ -211,6 +227,7 @@ export type AdminSubscriptionsResponse = {
     cancelled: number;
     pastDue: number;
   };
+  page: AdminPageMeta;
 };
 
 export type AdminPaymentRow = {
@@ -243,6 +260,7 @@ export type AdminPaymentsResponse = {
     retryingCount: number;
     actionNeededCount: number;
   };
+  page: AdminPageMeta;
 };
 
 export type AdminNotificationRow = {
@@ -262,12 +280,14 @@ export type AdminNotificationsResponse = {
     failedDelivery: number;
   };
   notifications: AdminNotificationRow[];
+  page: AdminPageMeta;
 };
 
 export type AdminBroadcastInput = {
   audience: "all" | "subscribers" | "creators" | "admins";
   subject: string;
   body: string;
+  dryRun?: boolean;
 };
 
 export type AdminBroadcastResult = {
@@ -286,6 +306,10 @@ export type AdminAnalyticsRange = "1m" | "3m" | "6m" | "12m";
 export type AdminAnalyticsResponse = {
   metrics: {
     platformMrrCents: number;
+    grossMrrCents: number;
+    collected30dCents: number;
+    platformTakeCents: number;
+    platformFeeBps: number;
     activeSubscribers: number;
     totalViews: number;
     premiumConversionPercent: number;
@@ -347,6 +371,8 @@ export type AdminPlatformSettingsResponse = {
   renewalReminderLeadDays: number;
   failureAlertCadence: "immediate" | "daily";
   maintenanceMode: boolean;
+  /** 0–10000. 10000 = platform keeps 100% until payouts exist. */
+  platformFeeBps: number;
 };
 
 export type AdminPlatformSettingsInput = Partial<AdminPlatformSettingsResponse>;

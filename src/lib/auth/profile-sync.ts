@@ -215,10 +215,14 @@ export function serializeUserProfile(
 }
 
 export const ACCOUNT_SUSPENDED_MESSAGE = "This account is suspended.";
+export const ACCOUNT_DELETED_MESSAGE = "This account is no longer available.";
 
 export function assertAccountIsActive(
   profile: { accountStatus?: string } | null | undefined
 ) {
+  if (profile?.accountStatus === "deleted") {
+    throw new Error(ACCOUNT_DELETED_MESSAGE);
+  }
   if (profile?.accountStatus === "suspended") {
     throw new Error(ACCOUNT_SUSPENDED_MESSAGE);
   }
@@ -413,6 +417,9 @@ export async function updateCurrentUserProfile(input: {
         ? (input.notificationPreferences as Partial<NotificationPreferences>)
         : {};
 
+    const existingPrefs = (
+      await SubscriberProfileModel.findOne({ clerkUserId: synced.user.id })
+    )?.notificationPreferences;
     await SubscriberProfileModel.findOneAndUpdate(
       { clerkUserId: synced.user.id },
       {
@@ -420,14 +427,17 @@ export async function updateCurrentUserProfile(input: {
           displayName,
           ...(preferredContentTypes ? { preferredContentTypes } : {}),
           notificationPreferences: {
-            productUpdates: Boolean(rawNotifications.productUpdates),
-            contentDigests: Boolean(rawNotifications.contentDigests),
-            downloadAlerts: Boolean(rawNotifications.downloadAlerts),
-            renewalReminders: Boolean(rawNotifications.renewalReminders),
-            paymentAlerts: Boolean(rawNotifications.paymentAlerts),
-            accountNotices: Boolean(rawNotifications.accountNotices),
-            creatorAnnouncements: Boolean(rawNotifications.creatorAnnouncements),
+            ...DEFAULT_NOTIFICATIONS,
+            ...(existingPrefs ?? {}),
+            ...Object.fromEntries(
+              Object.entries(rawNotifications).filter(([, value]) => typeof value === "boolean")
+            ),
           },
+        },
+        $setOnInsert: {
+          userProfileId: synced.profile._id,
+          clerkUserId: synced.user.id,
+          currentPlanLabel: "Free preview",
         },
       },
       { returnDocument: "after", upsert: true, setDefaultsOnInsert: true }
@@ -470,6 +480,9 @@ export async function updateCurrentUserProfileFromFormData(formData: FormData) {
     const preferredContentTypes = parseStringArray(formData.get("preferredContentTypes"));
     const rawNotifications = parseNotifications(formData.get("notificationPreferences"));
 
+    const existingPrefs = (
+      await SubscriberProfileModel.findOne({ clerkUserId: synced.user.id })
+    )?.notificationPreferences;
     await SubscriberProfileModel.findOneAndUpdate(
       { clerkUserId: synced.user.id },
       {
@@ -477,13 +490,11 @@ export async function updateCurrentUserProfileFromFormData(formData: FormData) {
           displayName,
           ...(preferredContentTypes ? { preferredContentTypes } : {}),
           notificationPreferences: {
-            productUpdates: Boolean(rawNotifications.productUpdates),
-            contentDigests: Boolean(rawNotifications.contentDigests),
-            downloadAlerts: Boolean(rawNotifications.downloadAlerts),
-            renewalReminders: Boolean(rawNotifications.renewalReminders),
-            paymentAlerts: Boolean(rawNotifications.paymentAlerts),
-            accountNotices: Boolean(rawNotifications.accountNotices),
-            creatorAnnouncements: Boolean(rawNotifications.creatorAnnouncements),
+            ...DEFAULT_NOTIFICATIONS,
+            ...(existingPrefs ?? {}),
+            ...Object.fromEntries(
+              Object.entries(rawNotifications).filter(([, value]) => typeof value === "boolean")
+            ),
           },
         },
         $setOnInsert: {

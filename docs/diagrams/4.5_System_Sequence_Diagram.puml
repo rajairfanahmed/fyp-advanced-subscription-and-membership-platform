@@ -1,0 +1,34 @@
+@startuml System_Sequence_Diagram
+!include _style.puml
+title Figure 4.5 : System Sequence Diagram\nSubscribe to a creator plan
+
+actor Subscriber
+participant ":ASMP" as Sys
+
+Subscriber -> Sys : open creator profile
+Sys --> Subscriber : public plans and preview
+
+alt Free follow
+  Subscriber -> Sys : POST /api/subscriptions\n(creatorSlug)
+  Sys --> Subscriber : Free membership row
+else Paid Basic or Premium
+  Subscriber -> Sys : POST /api/checkout { planId }
+  alt stripePriceId missing or creator / suspended
+    Sys --> Subscriber : 400 / 403 error
+  else Checkout ready
+    Sys --> Subscriber : hosted Checkout URL
+    Subscriber -> Sys : complete Stripe Checkout
+    Sys --> Subscriber : redirect with session_id
+    Subscriber -> Sys : GET /api/checkout/session
+    Sys --> Subscriber : active or trialing membership
+  end
+end
+
+opt Cancel paid plan
+  Subscriber -> Sys : open Billing Portal
+  Sys --> Subscriber : portal URL
+  Subscriber -> Sys : cancel at period end
+  Sys --> Subscriber : access until current_period_end
+end
+
+@enduml

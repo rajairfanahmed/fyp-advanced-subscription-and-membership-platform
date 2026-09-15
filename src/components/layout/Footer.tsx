@@ -7,9 +7,9 @@ export default function Footer() {
   const year = new Date().getFullYear();
   
   return (
-    <footer data-site-footer className="bg-white border-t border-[var(--color-border)] pt-20 pb-10">
+    <footer data-site-footer className="bg-white border-t border-[var(--color-border)] pt-12 md:pt-20 pb-10">
       <Container>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-10 mb-16">
+        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-8 md:gap-10 mb-12 md:mb-16">
           <div className="col-span-2 lg:col-span-2">
             <BrandLogo markId="brand-mark-footer" className="mb-6" />
             <p className="text-[var(--color-muted)] max-w-sm mb-6 leading-relaxed">

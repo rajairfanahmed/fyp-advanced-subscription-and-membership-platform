@@ -96,18 +96,16 @@ export const STORAGE_FILE_RULES: Record<StorageUploadCategory, AllowedFileRule> 
     // safe.
     mimeTypes: [
       "application/pdf",
-      // ZIP variants
       "application/zip",
       "application/x-zip",
       "application/x-zip-compressed",
       "application/x-compressed",
       "multipart/x-zip",
-      // RAR variants
       "application/vnd.rar",
       "application/x-rar",
       "application/x-rar-compressed",
       "application/rar",
-      // Universal fallback
+      // ZIP/RAR only — never PDFs. See validateStorageFile.
       "application/octet-stream",
     ],
     extensions: [".pdf", ".zip", ".rar"],
@@ -203,11 +201,33 @@ export function validateStorageFile(input: {
     return { ok: false, reason: `${input.category} does not allow ${extension || "files without an extension"}.` };
   }
 
+  if (
+    input.category === "downloadableFile" &&
+    contentType === "application/octet-stream" &&
+    extension === ".pdf"
+  ) {
+    return { ok: false, reason: "PDF uploads must use application/pdf." };
+  }
+
   if (rule.maxSizeBytes && input.sizeBytes && input.sizeBytes > rule.maxSizeBytes) {
     return { ok: false, reason: `${input.category} exceeds the allowed file size.` };
   }
 
   return { ok: true, extension, contentType };
+}
+
+/**
+ * True when `key` was generated for this Clerk user (`prefix/user/date/uuid.ext`).
+ * Content saves must reject keys that belong to another account.
+ */
+export function storageKeyBelongsToUser(key: string, clerkUserId: string): boolean {
+  if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\")) {
+    return false;
+  }
+  const userSegment = sanitizeSegment(clerkUserId);
+  if (!userSegment) return false;
+  const parts = key.split("/").filter(Boolean);
+  return parts.includes(userSegment);
 }
 
 export function createStorageObjectKey(input: {
@@ -360,24 +380,30 @@ export type R2DownloadObject = {
   webStream: ReadableStream;
   contentType: string;
   contentLength: number | undefined;
+  status: number;
+  contentRange?: string;
 };
 
 /**
- * Stream an object from R2 for a forced-attachment download. Callers
- * must never redirect the browser at the public URL for PDFs — the
- * browser would open the file and the subscriber could save it again
- * without another quota hit.
+ * Stream an object from R2. Pass `Range` for video seeking (206).
+ * Callers must never redirect the browser at a public object URL for
+ * paid media — that URL does not expire.
  */
-export async function getObjectFromCloudflareR2(key: string): Promise<R2DownloadObject> {
-  if (!key || key.includes("..") || key.startsWith("/")) {
+export async function getObjectFromCloudflareR2(
+  key: string,
+  options?: { range?: string | null }
+): Promise<R2DownloadObject> {
+  if (!key || key.includes("..") || key.startsWith("/") || key.includes("\\")) {
     throw new Error("A valid storage object key is required.");
   }
 
   const config = getR2Config();
+  const range = options?.range?.trim() || undefined;
   const result = await getCloudflareR2Client().send(
     new GetObjectCommand({
       Bucket: config.bucketName,
       Key: key,
+      ...(range ? { Range: range } : {}),
     })
   );
 
@@ -392,9 +418,26 @@ export async function getObjectFromCloudflareR2(key: string): Promise<R2Download
     throw new Error("Unable to stream this file.");
   }
 
+  const partial = Boolean(range && result.ContentRange);
   return {
     webStream: body.transformToWebStream(),
     contentType: result.ContentType || "application/octet-stream",
     contentLength: result.ContentLength,
+    status: partial ? 206 : 200,
+    contentRange: result.ContentRange,
   };
+}
+
+/** Pull an object key out of a stored public R2 URL when `fileKey`/`videoKey` is missing. */
+export function storageKeyFromPublicUrl(url: string): string | null {
+  try {
+    const base = getR2Config().publicUrl;
+    if (!base || !url.startsWith(base + "/")) return null;
+    const path = url.slice(base.length + 1);
+    const key = decodeURIComponent(path);
+    if (!key || key.includes("..") || key.startsWith("/")) return null;
+    return key;
+  } catch {
+    return null;
+  }
 }

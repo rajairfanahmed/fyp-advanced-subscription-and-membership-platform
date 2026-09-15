@@ -40,6 +40,7 @@ const CREATOR_LINKS = [
   { name: "Revenue", href: "/creator/revenue", icon: <DollarSign className="w-5 h-5" /> },
   { name: "Analytics", href: "/creator/analytics", icon: <LineChart className="w-5 h-5" /> },
   { name: "Settings", href: "/creator/settings", icon: <Settings className="w-5 h-5" /> },
+  { name: "Notifications", href: "/notifications", icon: <BellRing className="w-5 h-5" /> },
 ];
 
 const ADMIN_LINKS = [
@@ -86,7 +87,7 @@ export function DashboardShell({ children, role }: DashboardShellProps) {
   }, [pathname]);
 
   return (
-    <div className="flex min-h-screen bg-slate-50/30 font-sans selection:bg-teal-100 selection:text-teal-900">
+    <div className="flex min-h-screen min-w-0 max-w-full bg-slate-50/30 font-sans selection:bg-teal-100 selection:text-teal-900">
       
       {/* ── Desktop Sidebar ── */}
       <aside className="hidden lg:flex flex-col w-72 fixed inset-y-0 left-0 bg-white border-r border-slate-200/60 z-50 shadow-[4px_0_24px_rgba(10,17,40,0.02)]">
@@ -144,7 +145,7 @@ export function DashboardShell({ children, role }: DashboardShellProps) {
       </aside>
 
       {/* ── Mobile Header (same position as homepage navbar) ── */}
-      <header data-dashboard className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
+      <header data-dashboard className="lg:hidden fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 py-4 bg-white/80 backdrop-blur-xl border-b border-slate-200/60">
         <Link href="/" className="relative z-50 flex items-center gap-3">
           <div className={cn("w-8 h-8 rounded-lg flex items-center justify-center shadow-sm", brandIconColor)}>
             <BrandIcon className="w-4 h-4 text-white" />
@@ -175,7 +176,7 @@ export function DashboardShell({ children, role }: DashboardShellProps) {
             exit={{ opacity: 0, y: -20 }}
             transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             data-lenis-prevent
-            className="fixed inset-0 z-40 lg:hidden bg-white/95 backdrop-blur-3xl flex flex-col pt-24 px-6 pb-12 overflow-y-auto"
+            className="fixed inset-0 z-40 lg:hidden bg-white/95 backdrop-blur-3xl flex flex-col pt-20 sm:pt-24 px-4 sm:px-6 pb-12 overflow-y-auto"
           >
             {/* Role badge */}
             <div className="mb-6">
@@ -229,9 +230,9 @@ export function DashboardShell({ children, role }: DashboardShellProps) {
       </AnimatePresence>
 
       {/* ── Main Content Wrapper ── */}
-      <main className="flex-1 lg:ml-72 min-h-screen pt-20 lg:pt-0 relative">
-        <div className="max-w-[1240px] mx-auto px-6 lg:px-12 py-10 lg:py-16">
-          <MotionReveal>
+      <main className="flex-1 min-w-0 max-w-full lg:ml-72 min-h-screen pt-20 lg:pt-0 relative overflow-x-clip">
+        <div className="max-w-[1240px] mx-auto px-4 sm:px-6 lg:px-12 py-8 lg:py-16 w-full min-w-0">
+          <MotionReveal className="min-w-0 w-full max-w-full">
             {children}
           </MotionReveal>
         </div>

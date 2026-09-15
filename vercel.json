@@ -4,6 +4,10 @@
     {
       "path": "/api/cron/analytics/daily-rollup",
       "schedule": "5 0 * * *"
+    },
+    {
+      "path": "/api/cron/renewal-reminders",
+      "schedule": "20 8 * * *"
     }
   ]
 }

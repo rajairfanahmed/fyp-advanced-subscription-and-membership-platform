@@ -1,5 +1,6 @@
 import { isRecordId } from "@/lib/db/ids";
 
+import { assertCreatorIsAcceptingMembers } from "@/lib/account/status";
 import {
   assertAccountIsActive,
   ensureCurrentUserProfile,
@@ -69,18 +70,22 @@ async function loadPlan(
  * `SubscriptionResponse` (subscriber dashboard, billing page, etc.)
  * can render "X / 30 downloads left" copy without an extra round trip.
  */
+function safeTime(value: Date | string | null | undefined): number {
+  if (!value) return 0;
+  const ms = value instanceof Date ? value.getTime() : new Date(value).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
 function buildDownloadQuotaSnapshot(
   doc: SubscriptionDocument
 ): SubscriptionDownloadQuota {
   const accessLevel = (doc.accessLevel as PlanAccessLevel) ?? "free";
-  const tier = TIER_LIMITS[accessLevel];
+  const tier = TIER_LIMITS[accessLevel] ?? TIER_LIMITS.free;
   const now = Date.now();
-  const periodStart = doc.quotaPeriodStart
-    ? new Date(doc.quotaPeriodStart).getTime()
-    : 0;
+  const periodStart = safeTime(doc.quotaPeriodStart);
   const expired = !periodStart || now - periodStart >= QUOTA_WINDOW_MS;
   const effectiveStart = expired ? now : periodStart;
-  const used = expired ? 0 : doc.monthlyDownloadCount ?? 0;
+  const used = expired ? 0 : Math.max(0, doc.monthlyDownloadCount ?? 0);
   const monthlyLimit =
     tier.monthlyDownloads === UNLIMITED_DOWNLOADS ? null : tier.monthlyDownloads;
   const remaining =
@@ -198,6 +203,7 @@ export async function subscribeCurrentUserToFreeTier(input: {
   if (!creator) {
     throw new Error("That creator could not be found.");
   }
+  await assertCreatorIsAcceptingMembers(creator.clerkUserId);
 
   if (creator.clerkUserId === synced.user.id) {
     throw new Error("You cannot subscribe to yourself.");
@@ -243,7 +249,6 @@ export async function subscribeCurrentUserToFreeTier(input: {
       priceMonthly: 0,
       canceledAt: null,
       cancelAtPeriodEnd: false,
-      stripeSubscriptionId: "",
     },
     $setOnInsert: {
       subscriberClerkUserId: synced.user.id,
@@ -252,7 +257,7 @@ export async function subscribeCurrentUserToFreeTier(input: {
     },
   };
 
-  const doc = await SubscriptionModel.findOneAndUpdate(
+  let doc = await SubscriptionModel.findOneAndUpdate(
     {
       subscriberClerkUserId: synced.user.id,
       creatorClerkUserId: creator.clerkUserId,
@@ -261,7 +266,16 @@ export async function subscribeCurrentUserToFreeTier(input: {
     { returnDocument: "after", upsert: true, setDefaultsOnInsert: true }
   );
 
-  if (doc) {
+  if (!doc) {
+    doc = await SubscriptionModel.findOne({
+      subscriberClerkUserId: synced.user.id,
+      creatorClerkUserId: creator.clerkUserId,
+    });
+  }
+
+  if (!doc) {
+    throw new Error("Your membership could not be saved. Please try again.");
+  }
     try {
       await recalcCreatorSubscriberCount(creator.clerkUserId);
     } catch (error) {
@@ -296,7 +310,6 @@ export async function subscribeCurrentUserToFreeTier(input: {
     } catch (error) {
       console.warn("[subscriptions:notify-creator]", error);
     }
-  }
 
   return serializeSubscription(doc, { creatorProfile: creator, plan: freePlan });
 }
@@ -388,8 +401,9 @@ export async function cancelCurrentUserSubscription(
 }
 
 /**
- * Reactivate a previously-canceled free subscription. Paid plans must
- * go through Stripe to reactivate — this helper rejects those.
+ * Reactivate a canceled free follow, or resume a paid membership that
+ * is still in the cancel-at-period-end window. Fully ended Stripe
+ * subscriptions must check out again.
  */
 export async function reactivateCurrentUserSubscription(
   subscriptionId: string
@@ -405,8 +419,49 @@ export async function reactivateCurrentUserSubscription(
     subscriberClerkUserId: synced.user.id,
   });
   if (!existing) return null;
-  if (existing.accessLevel !== "free") {
-    throw new Error("Paid subscriptions must be reactivated through checkout.");
+
+  const isPaid = existing.accessLevel !== "free" && Boolean(existing.stripeSubscriptionId);
+  if (isPaid) {
+    if (!existing.cancelAtPeriodEnd) {
+      throw new Error("This paid membership is not scheduled to cancel.");
+    }
+    try {
+      const { resumeStripeSubscription } = await import("@/lib/stripe/subscription-ops");
+      await resumeStripeSubscription(existing.stripeSubscriptionId);
+    } catch (error) {
+      const code = error instanceof Error ? error.message : "";
+      if (code === "STRIPE_SUBSCRIPTION_ENDED") {
+        throw new Error("This membership already ended. Subscribe again from the creator's page.");
+      }
+      if (code === "STRIPE_SUBSCRIPTION_NOT_RESUMABLE") {
+        throw new Error("This membership cannot be resumed. Subscribe again from the creator's page.");
+      }
+      throw new Error("Stripe could not resume the membership. Try the billing portal or contact support.");
+    }
+    existing.cancelAtPeriodEnd = false;
+    existing.canceledAt = null;
+    if (existing.status === "canceled") existing.status = "active";
+    await existing.save();
+    try {
+      await recalcCreatorSubscriberCount(existing.creatorClerkUserId);
+    } catch (error) {
+      console.warn("[subscriptions:recalc-count]", error);
+    }
+    try {
+      const creatorProfile = await loadCreatorProfile(existing);
+      const creatorName = creatorProfile?.creatorName ?? "the creator";
+      await notifyIfAllowed({
+        recipientClerkUserId: existing.subscriberClerkUserId,
+        category: "renewal",
+        title: "Membership will continue",
+        message: `Billing will continue for ${creatorName}. Your access stays active.`,
+        link: "/subscription",
+        metadata: { event: "subscription.resumed", accessLevel: existing.accessLevel },
+      });
+    } catch (error) {
+      console.warn("[subscriptions:notify-resume]", error);
+    }
+    return serializeSubscription(existing);
   }
 
   existing.status = "active";
@@ -437,3 +492,132 @@ export async function reactivateCurrentUserSubscription(
 
   return serializeSubscription(existing);
 }
+
+export type CreatorOwnedSubscriptionAction =
+  | "schedule_cancel"
+  | "keep_membership"
+  | "remove_follower";
+
+const CREATOR_MANAGEABLE_STATUSES = ["active", "trialing", "past_due"] as const;
+
+/**
+ * Creator-side membership actions, scoped to subscriptions they own.
+ * Paid: schedule cancel at period end, or resume if already scheduled.
+ * Free: remove the follower immediately (no Stripe).
+ */
+export async function manageCreatorOwnedSubscription(
+  subscriptionId: string,
+  action: CreatorOwnedSubscriptionAction
+): Promise<SubscriptionResponse | null> {
+  await connectToMongoDB();
+  const synced = await ensureCurrentUserProfile();
+  if (!synced || synced.role !== "creator" || synced.isAdmin) {
+    throw new Error("Only creator accounts can manage subscribers.");
+  }
+  assertAccountIsActive(synced.profile);
+  if (!isRecordId(subscriptionId)) return null;
+
+  const existing = await SubscriptionModel.findOne({
+    _id: subscriptionId,
+    creatorClerkUserId: synced.user.id,
+  });
+  if (!existing) return null;
+
+  const isLive = CREATOR_MANAGEABLE_STATUSES.includes(
+    existing.status as (typeof CREATOR_MANAGEABLE_STATUSES)[number]
+  );
+  const isPaid = existing.accessLevel !== "free" && Boolean(existing.stripeSubscriptionId);
+
+  if (action === "schedule_cancel") {
+    if (!isPaid || !isLive) {
+      throw new Error("Only active paid memberships can be scheduled to cancel.");
+    }
+    if (existing.cancelAtPeriodEnd) {
+      return serializeSubscription(existing);
+    }
+    try {
+      const { cancelStripeSubscriptionAtPeriodEnd } = await import(
+        "@/lib/stripe/subscription-ops"
+      );
+      await cancelStripeSubscriptionAtPeriodEnd(existing.stripeSubscriptionId);
+    } catch (error) {
+      console.error("[creator:subscribers:cancel:stripe]", error);
+      throw new Error("Stripe could not schedule the cancellation. Try again or contact support.");
+    }
+    existing.cancelAtPeriodEnd = true;
+    existing.canceledAt = null;
+    await existing.save();
+  } else if (action === "keep_membership") {
+    if (!isPaid || !isLive || !existing.cancelAtPeriodEnd) {
+      throw new Error("This membership is not scheduled to cancel.");
+    }
+    try {
+      const { resumeStripeSubscription } = await import("@/lib/stripe/subscription-ops");
+      await resumeStripeSubscription(existing.stripeSubscriptionId);
+    } catch (error) {
+      console.error("[creator:subscribers:resume:stripe]", error);
+      throw new Error("Stripe could not resume this membership. Try again or contact support.");
+    }
+    existing.cancelAtPeriodEnd = false;
+    existing.canceledAt = null;
+    await existing.save();
+  } else if (action === "remove_follower") {
+    if (existing.accessLevel !== "free") {
+      throw new Error("Paid members cannot be removed immediately. Schedule cancellation instead.");
+    }
+    if (!isLive) {
+      throw new Error("This follower is already inactive.");
+    }
+    existing.status = "canceled";
+    existing.canceledAt = new Date();
+    existing.cancelAtPeriodEnd = false;
+    await existing.save();
+  } else {
+    throw new Error("Unknown membership action.");
+  }
+
+  try {
+    await recalcCreatorSubscriberCount(existing.creatorClerkUserId);
+  } catch (error) {
+    console.warn("[creator:subscribers:recalc-count]", error);
+  }
+
+  try {
+    const creatorProfile = await loadCreatorProfile(existing);
+    const creatorName = creatorProfile?.creatorName ?? "the creator";
+    const creatorSlug = creatorProfile?.creatorSlug ?? "";
+    if (action === "schedule_cancel") {
+      await notifyIfAllowed({
+        recipientClerkUserId: existing.subscriberClerkUserId,
+        category: "renewal",
+        title: "Cancellation scheduled",
+        message: `${creatorName} scheduled your paid membership to end at the close of the current billing period. You keep access until then.`,
+        link: creatorSlug ? `/creators/${creatorSlug}` : "/subscription",
+        metadata: { event: "subscription.cancel_scheduled", by: "creator" },
+      });
+    } else if (action === "keep_membership") {
+      await notifyIfAllowed({
+        recipientClerkUserId: existing.subscriberClerkUserId,
+        category: "renewal",
+        title: "Membership continued",
+        message: `${creatorName} kept your paid membership. Billing will continue as usual.`,
+        link: creatorSlug ? `/creators/${creatorSlug}` : "/subscription",
+        metadata: { event: "subscription.resumed", by: "creator" },
+      });
+    } else {
+      await notifyIfAllowed({
+        recipientClerkUserId: existing.subscriberClerkUserId,
+        category: "creator",
+        title: "Free membership ended",
+        message: `Your free-tier access to ${creatorName} has ended. You can subscribe again anytime.`,
+        link: creatorSlug ? `/creators/${creatorSlug}` : "/subscription",
+        metadata: { event: "subscription.canceled", by: "creator", accessLevel: "free" },
+      });
+    }
+  } catch (error) {
+    console.warn("[creator:subscribers:notify]", error);
+  }
+
+  return serializeSubscription(existing);
+}
+

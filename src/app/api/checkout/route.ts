@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 
+import { CREATOR_UNAVAILABLE_MESSAGE } from "@/lib/account/status";
 import { ACCOUNT_SUSPENDED_MESSAGE } from "@/lib/auth/profile-sync";
 import { createCheckoutSessionForPlan } from "@/lib/stripe/checkout";
 import { StripeNotConfiguredError } from "@/lib/stripe/client";
@@ -58,7 +59,8 @@ export async function POST(req: Request) {
       error instanceof Error ? error.message : "Failed to start checkout.";
     if (
       message === "Only subscriber accounts can subscribe to creators." ||
-      message === ACCOUNT_SUSPENDED_MESSAGE
+      message === ACCOUNT_SUSPENDED_MESSAGE ||
+      message === CREATOR_UNAVAILABLE_MESSAGE
     ) {
       return NextResponse.json({ error: message }, { status: 403 });
     }

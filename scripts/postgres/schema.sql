@@ -311,7 +311,7 @@ CREATE TABLE IF NOT EXISTS platform_settings (
   legacy_mongo_id CHAR(24) NOT NULL UNIQUE,
   singleton_key VARCHAR(16) NOT NULL DEFAULT 'primary' CHECK (singleton_key = 'primary'),
   platform_display_name TEXT NOT NULL DEFAULT 'Advanced Subscription & Membership Platform',
-  support_email VARCHAR(320) NOT NULL DEFAULT 'support@example.com',
+  support_email VARCHAR(320) NOT NULL DEFAULT 'support@asmp.app',
   default_subscriber_tier platform_default_subscriber_tier NOT NULL DEFAULT 'free',
   default_creator_status platform_default_creator_status NOT NULL DEFAULT 'review',
   platform_currency platform_currency NOT NULL DEFAULT 'usd',
@@ -368,4 +368,51 @@ UPDATE subscriber_profiles sp
 SET clerk_user_id = up.clerk_user_id
 FROM user_profiles up
 WHERE sp.user_profile_id = up.id AND (sp.clerk_user_id IS NULL OR sp.clerk_user_id = '');
+
+CREATE TABLE IF NOT EXISTS stripe_webhook_events (
+  event_id TEXT PRIMARY KEY,
+  event_type TEXT NOT NULL,
+  received_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_payments_stripe_invoice_unique
+ON payments (stripe_invoice_id)
+WHERE stripe_invoice_id IS NOT NULL AND stripe_invoice_id <> '';
+
+ALTER TABLE platform_settings
+  ADD COLUMN IF NOT EXISTS platform_fee_bps INTEGER NOT NULL DEFAULT 10000
+  CHECK (platform_fee_bps BETWEEN 0 AND 10000);
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_subscriptions_clerk_pair
+  ON subscriptions (subscriber_clerk_user_id, creator_clerk_user_id)
+  WHERE subscriber_clerk_user_id IS NOT NULL AND subscriber_clerk_user_id <> ''
+    AND creator_clerk_user_id IS NOT NULL AND creator_clerk_user_id <> '';
+
+ALTER TABLE platform_settings
+  ALTER COLUMN support_email SET DEFAULT 'support@asmp.app';
+UPDATE platform_settings
+SET support_email = 'support@asmp.app'
+WHERE support_email IS NULL OR support_email = '' OR support_email = 'support@example.com';
+
+CREATE INDEX IF NOT EXISTS idx_subscriptions_status_access
+  ON subscriptions (status, access_level);
+CREATE INDEX IF NOT EXISTS idx_payments_status_paid
+  ON payments (status, paid_at DESC);
+CREATE INDEX IF NOT EXISTS idx_user_profiles_status_created
+  ON user_profiles (account_status, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_content_status_created
+  ON content (status, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS admin_audit_events (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  actor_clerk_user_id VARCHAR(64) NOT NULL,
+  actor_email VARCHAR(320) NOT NULL DEFAULT '',
+  action VARCHAR(80) NOT NULL,
+  target_type VARCHAR(40) NOT NULL DEFAULT '',
+  target_id VARCHAR(80) NOT NULL DEFAULT '',
+  payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+  ip VARCHAR(128) NOT NULL DEFAULT '',
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_admin_audit_created ON admin_audit_events (created_at DESC);
 

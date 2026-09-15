@@ -1,0 +1,50 @@
+@startuml Activity_Diagram
+!include _style.puml
+title Figure 4.2 : Activity Diagram\nPer-creator Follow and Stripe Checkout
+
+|Subscriber|
+start
+:Open creator profile;
+:Choose Free follow\nor paid Basic / Premium;
+
+if (Account is subscriber\nand not suspended?) then (no)
+  :Show blocked or sign-in message;
+  stop
+endif
+
+if (Free follow?) then (yes)
+  :POST /api/subscriptions;
+  :Create or keep Free\nsubscriptions row;
+  :Grant Free content for\nthat creator;
+  stop
+endif
+
+|ASMP|
+:Load plan by planId;
+if (stripePriceId exists?) then (no)
+  :Return Checkout not ready;
+  stop
+endif
+:Create Stripe Checkout Session\non the platform account;
+:Return hosted Checkout URL;
+
+|Stripe|
+:Collect payment;
+if (Checkout completed?) then (no)
+  |Subscriber|
+  :Return with checkout=cancelled;
+  stop
+endif
+:Send checkout.session.completed\nand subscription webhooks;
+
+|ASMP|
+:POST /api/webhooks/stripe;
+:Upsert subscriptions row\n(active / trialing / past_due);
+:Record payments row;
+
+|Subscriber|
+:Open library for that creator;
+:Access content at granted tier;
+stop
+
+@enduml

@@ -15,7 +15,10 @@ import {
   Zap,
   TrendingUp,
   Users,
+  Search,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import type {
   AdminPlanGroup,
   AdminPlansResponse,
@@ -53,8 +56,15 @@ export default function AdminPlansPage() {
   const [data, setData] = useState<AdminPlansResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
+  const [page, setPage] = useState(1);
+  const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
   const [planFilter, setPlanFilter] =
     useState<(typeof PLAN_FILTERS)[number]["id"]>("all");
+
+  useEffect(() => {
+    setPage(1);
+  }, [planFilter, debouncedQuery]);
 
   useEffect(() => {
     let cancelled = false;
@@ -62,7 +72,13 @@ export default function AdminPlansPage() {
       setIsLoading(true);
       setErrorMessage("");
       try {
-        const res = await fetch("/api/admin/plans", { cache: "no-store" });
+        const params = new URLSearchParams({
+          page: String(page),
+          q: debouncedQuery,
+        });
+        const res = await fetch(`/api/admin/plans?${params.toString()}`, {
+          cache: "no-store",
+        });
         if (!res.ok) {
           const body = (await res.json().catch(() => ({}))) as { error?: string };
           throw new Error(body.error || "Failed to load plans.");
@@ -82,7 +98,7 @@ export default function AdminPlansPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [page, debouncedQuery]);
 
   const filteredPlans = useMemo(() => {
     if (!data) return [];
@@ -221,7 +237,17 @@ export default function AdminPlansPage() {
                   </p>
                 </div>
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                <div className="relative">
+                  <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <input
+                    value={query}
+                    onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search plans or creators"
+                    className="pl-9 pr-4 py-2.5 rounded-xl bg-slate-50 border border-slate-200 text-sm font-bold text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 w-full sm:w-64"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2">
                 {PLAN_FILTERS.map((option) => (
                   <button
                     key={option.id}
@@ -235,6 +261,7 @@ export default function AdminPlansPage() {
                     {option.label}
                   </button>
                 ))}
+                </div>
               </div>
             </div>
 
@@ -248,7 +275,8 @@ export default function AdminPlansPage() {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
+              <>
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100 text-[10px] font-black text-slate-400 uppercase tracking-widest">
@@ -314,6 +342,46 @@ export default function AdminPlansPage() {
                   </tbody>
                 </table>
               </div>
+              <div className="md:hidden divide-y divide-slate-100">
+                {filteredPlans.map((plan) => (
+                  <div key={plan.id} className="py-5 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="font-bold text-slate-900">{plan.name}</p>
+                        <p className="text-xs font-medium text-slate-500 mt-1">
+                          {plan.creatorName}
+                        </p>
+                      </div>
+                      <Badge
+                        variant={
+                          plan.accessLevel === "premium"
+                            ? "sky"
+                            : plan.accessLevel === "basic"
+                              ? "emerald"
+                              : "default"
+                        }
+                      >
+                        {plan.accessLevel === "free"
+                          ? "Free"
+                          : plan.accessLevel === "basic"
+                            ? "Basic"
+                            : "Premium"}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="font-black text-slate-900">
+                        ${plan.priceMonthly.toFixed(2)}/mo
+                      </span>
+                      <span className="text-xs font-bold text-slate-500">
+                        {plan.subscribersCount.toLocaleString()} subs ·{" "}
+                        {plan.isActive ? "Active" : "Inactive"}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <AdminPager page={data?.page} onPage={setPage} />
+              </>
             )}
 
             <div className="mt-8 bg-amber-50/50 rounded-[2rem] border border-amber-100 p-6 flex items-start gap-4">

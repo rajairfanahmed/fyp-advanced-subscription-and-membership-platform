@@ -11,9 +11,9 @@ import { AuthenticateWithRedirectCallback } from "@clerk/nextjs";
 export default function LoginSSOCallbackPage() {
   return (
     <AuthenticateWithRedirectCallback
-      signInUrl="/login?oauth_error=google_account_not_found"
+      signInUrl="/login?oauth_error=google_login_failed"
       signUpUrl="/sign-up"
-      continueSignUpUrl="/login?oauth_error=google_account_not_found"
+      continueSignUpUrl="/sign-up"
       signInFallbackRedirectUrl="/sso-callback"
       signUpFallbackRedirectUrl="/sso-callback"
       transferable={false}

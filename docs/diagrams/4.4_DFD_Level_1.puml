@@ -1,0 +1,55 @@
+@startuml DFD_Level_1
+!include _style.puml
+title Figure 4.4 : DFD Level 1
+
+actor "User\n(Guest / Subscriber /\nCreator / Admin)" as User
+
+rectangle "1.0\nAuthentication\nand registration" as P1
+rectangle "2.0\nCreator publishing\nand plans" as P2
+rectangle "3.0\nMembership and\nStripe Checkout" as P3
+rectangle "4.0\nLibrary access\nand download" as P4
+rectangle "5.0\nIn-app\nnotifications" as P5
+rectangle "6.0\nAdmin oversight\nand settings" as P6
+
+database "D1 user_profiles" as D1
+database "D2 creator_profiles\nsubscriber_profiles" as D2
+database "D3 plans" as D3
+database "D4 subscriptions" as D4
+database "D5 content" as D5
+database "D6 payments" as D6
+database "D7 notifications\nplatform_settings" as D7
+
+User --> P1 : credentials / Google SSO
+P1 --> User : session / role
+P1 --> D1 : upsert profile
+D1 --> P1 : account_status / role
+
+User --> P2 : video / article / file /\nplan price
+P2 --> D2 : creator workspace
+P2 --> D3 : Free / Basic / Premium
+P2 --> D5 : published content
+D3 --> P2 : stripe_price_id
+
+User --> P3 : follow or planId
+P3 --> D3 : read plan
+P3 --> D4 : upsert membership
+P3 --> D6 : payment result
+D4 --> P3 : (subscriber, creator) row
+
+User --> P4 : open item / download
+P4 --> D4 : check access_level
+P4 --> D5 : gated item
+D5 --> P4 : file_key / article / video
+P4 --> User : page or attachment
+
+User --> P5 : read inbox
+P5 --> D7 : notifications
+D7 --> P5 : unread items
+
+User --> P6 : suspend / refund /\nmaintenance
+P6 --> D1 : account_status
+P6 --> D4 : cancel via Stripe
+P6 --> D6 : refund / retry
+P6 --> D7 : maintenance_mode
+
+@enduml

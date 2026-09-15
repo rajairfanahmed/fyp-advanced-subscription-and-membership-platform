@@ -1,0 +1,52 @@
+@startuml Interface_Design_Diagram
+!include _style.puml
+title Figure 4.8 : Interface Design Diagram
+
+left to right direction
+
+package "Public screens" {
+  [Home /]
+  [Creators /creators]
+  [Creator profile /creators/:slug]
+  [Pricing /pricing]
+  [About / Support / Contact]
+  [Login / Sign up]
+}
+
+package "Subscriber screens" {
+  [Library /library]
+  [Content player /library/:id]
+  [Subscription /subscription]
+  [Billing /billing]
+  [Account /account]
+  [Notifications /notifications]
+}
+
+package "Creator workspace" {
+  [Overview /creator]
+  [Content /creator/content]
+  [Plans /creator/plans]
+  [Subscribers /creator/subscribers]
+  [Revenue /creator/revenue]
+  [Analytics /creator/analytics]
+}
+
+package "Admin overlay /admin" {
+  [Users]
+  [Creators / Subscribers]
+  [Content / Plans]
+  [Subscriptions / Payments]
+  [Notifications]
+  [Settings / maintenance]
+}
+
+[Home /] --> [Creators /creators]
+[Creators /creators] --> [Creator profile /creators/:slug]
+[Creator profile /creators/:slug] --> [Login / Sign up]
+[Creator profile /creators/:slug] --> [Subscription /subscription]
+[Library /library] --> [Content player /library/:id]
+[Subscription /subscription] --> [Billing /billing]
+[Overview /creator] --> [Content /creator/content]
+[Overview /creator] --> [Plans /creator/plans]
+
+@enduml

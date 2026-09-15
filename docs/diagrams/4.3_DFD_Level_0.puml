@@ -1,0 +1,33 @@
+@startuml DFD_Level_0
+!include _style.puml
+title Figure 4.3 : DFD Level 0
+
+left to right direction
+
+actor "Guest" as Guest
+actor "Subscriber" as Subscriber
+actor "Creator" as Creator
+actor "Admin" as Admin
+
+rectangle "0.0\nAdvanced Subscription\nand Membership Platform" as ASMP
+
+database "Clerk" as Clerk
+database "Stripe" as Stripe
+database "PostgreSQL" as PG
+database "Cloudflare R2" as R2
+
+Guest --> ASMP : browse / register /\ncontact message
+Subscriber --> ASMP : follow / checkout /\nlibrary / download
+Creator --> ASMP : content / plans /\nworkspace
+Admin --> ASMP : users / payments /\nmaintenance
+
+ASMP --> Clerk : session and user profile
+Clerk --> ASMP : clerk_user_id / role
+ASMP --> Stripe : Checkout Session /\nBilling Portal / Price
+Stripe --> ASMP : webhook events
+ASMP --> PG : profiles, plans,\nsubscriptions, content
+PG --> ASMP : membership and catalog
+ASMP --> R2 : upload object
+R2 --> ASMP : download object stream
+
+@enduml

@@ -14,6 +14,9 @@ import {
   MailWarning,
   Send,
 } from "lucide-react";
+import { AdminPager } from "@/components/admin/AdminPager";
+import { ConfirmPhraseDialog } from "@/components/admin/ConfirmPhraseDialog";
+import { useDebouncedValue } from "@/components/admin/useDebouncedValue";
 import { cn } from "@/lib/utils";
 import type {
   AdminBroadcastInput,
@@ -51,6 +54,8 @@ export default function AdminNotificationsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [query, setQuery] = useState("");
+  const debouncedQuery = useDebouncedValue(query);
+  const [page, setPage] = useState(1);
   const [categoryFilter, setCategoryFilter] =
     useState<(typeof CATEGORY_FILTERS)[number]["id"]>("all");
 
@@ -59,6 +64,7 @@ export default function AdminNotificationsPage() {
   const [subject, setSubject] = useState("");
   const [body, setBody] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [confirmSend, setConfirmSend] = useState(false);
   const [feedback, setFeedback] = useState<{
     type: "success" | "error";
     text: string;
@@ -68,7 +74,13 @@ export default function AdminNotificationsPage() {
     setIsLoading(true);
     setErrorMessage("");
     try {
-      const res = await fetch("/api/admin/notifications", { cache: "no-store" });
+      const params = new URLSearchParams({
+        page: String(page),
+        q: debouncedQuery,
+      });
+      const res = await fetch(`/api/admin/notifications?${params.toString()}`, {
+        cache: "no-store",
+      });
       if (!res.ok) {
         const errBody = (await res.json().catch(() => ({}))) as { error?: string };
         throw new Error(errBody.error || "Failed to load notifications.");
@@ -85,8 +97,13 @@ export default function AdminNotificationsPage() {
   }
 
   useEffect(() => {
-    load();
-  }, []);
+    setPage(1);
+  }, [debouncedQuery]);
+
+  useEffect(() => {
+    void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, debouncedQuery]);
 
   const filtered = useMemo(() => {
     if (!data) return [];
@@ -104,10 +121,7 @@ export default function AdminNotificationsPage() {
 
   const metrics = data?.metrics;
 
-  async function handleBroadcast(e: React.FormEvent) {
-    e.preventDefault();
-    setFeedback(null);
-
+  async function postBroadcast(dryRun: boolean) {
     const trimmedSubject = subject.trim();
     const trimmedBody = body.trim();
     if (!trimmedSubject || !trimmedBody) {
@@ -119,6 +133,7 @@ export default function AdminNotificationsPage() {
     }
 
     setIsSending(true);
+    setFeedback(null);
     try {
       const res = await fetch("/api/admin/notifications", {
         method: "POST",
@@ -127,6 +142,8 @@ export default function AdminNotificationsPage() {
           audience,
           subject: trimmedSubject,
           body: trimmedBody,
+          dryRun,
+          confirmationPhrase: dryRun ? undefined : "BROADCAST",
         }),
       });
       if (!res.ok) {
@@ -136,11 +153,16 @@ export default function AdminNotificationsPage() {
       const result = (await res.json()) as { recipientsCount: number };
       setFeedback({
         type: "success",
-        text: `Sent to ${result.recipientsCount} recipient${result.recipientsCount === 1 ? "" : "s"}.`,
+        text: dryRun
+          ? `Dry run: ${result.recipientsCount} recipient${result.recipientsCount === 1 ? "" : "s"} would receive this.`
+          : `Sent to ${result.recipientsCount} recipient${result.recipientsCount === 1 ? "" : "s"}.`,
       });
-      setSubject("");
-      setBody("");
-      await load();
+      if (!dryRun) {
+        setSubject("");
+        setBody("");
+        setConfirmSend(false);
+        await load();
+      }
     } catch (err) {
       setFeedback({
         type: "error",
@@ -149,6 +171,11 @@ export default function AdminNotificationsPage() {
     } finally {
       setIsSending(false);
     }
+  }
+
+  async function handleBroadcast(e: React.FormEvent) {
+    e.preventDefault();
+    setConfirmSend(true);
   }
 
   return (
@@ -337,6 +364,7 @@ export default function AdminNotificationsPage() {
                     ))}
                   </div>
                 )}
+                <AdminPager page={data?.page} onPage={setPage} />
               </div>
             </MotionReveal>
           </div>
@@ -405,21 +433,42 @@ export default function AdminNotificationsPage() {
                     </p>
                   )}
 
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    className="w-full h-14 rounded-2xl text-[10px] font-black uppercase tracking-[0.15em]"
-                    icon={<Send className="w-4 h-4 ml-1" />}
-                    disabled={isSending}
-                  >
-                    {isSending ? "Sending…" : "Send Notice"}
-                  </Button>
+                  <div className="grid grid-cols-2 gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-14 rounded-2xl text-[10px] font-black uppercase tracking-[0.15em]"
+                      disabled={isSending}
+                      onClick={() => void postBroadcast(true)}
+                    >
+                      Dry run
+                    </Button>
+                    <Button
+                      type="submit"
+                      variant="primary"
+                      className="h-14 rounded-2xl text-[10px] font-black uppercase tracking-[0.15em]"
+                      icon={<Send className="w-4 h-4 ml-1" />}
+                      disabled={isSending}
+                    >
+                      {isSending ? "Sending…" : "Send Notice"}
+                    </Button>
+                  </div>
                 </form>
               </div>
             </MotionReveal>
           </div>
         </div>
       </div>
+      <ConfirmPhraseDialog
+        open={confirmSend}
+        title="Send this broadcast?"
+        description="Every matching account receives an in-app notice. Type BROADCAST to send."
+        phrase="BROADCAST"
+        confirmLabel="Send notice"
+        pending={isSending}
+        onClose={() => setConfirmSend(false)}
+        onConfirm={() => void postBroadcast(false)}
+      />
     </AdminShell>
   );
 }

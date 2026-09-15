@@ -36,6 +36,7 @@ export default function MainNav() {
   const { isSignedIn, isLoaded } = useAuth();
   const { signOut } = useClerk();
   const [me, setMe] = useState<AuthMeUser | null>(null);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     if (!isLoaded) return;
@@ -54,6 +55,25 @@ export default function MainNav() {
         if (!cancelled) setMe(null);
       });
 
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoaded, isSignedIn]);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn) {
+      setUnreadCount(0);
+      return;
+    }
+    let cancelled = false;
+    fetch("/api/notifications", { cache: "no-store", credentials: "include" })
+      .then((res) => (res.ok ? res.json() : { unreadCount: 0 }))
+      .then((data: { unreadCount?: number }) => {
+        if (!cancelled) setUnreadCount(Number(data?.unreadCount) || 0);
+      })
+      .catch(() => {
+        if (!cancelled) setUnreadCount(0);
+      });
     return () => {
       cancelled = true;
     };
@@ -145,14 +165,25 @@ export default function MainNav() {
     ];
   };
 
+  const showGuestChrome = isLoaded && !isSignedIn;
+
   return (
     <>
-      <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-6 lg:px-12 py-4 glass-panel border-x-0 border-t-0 rounded-none mix-blend-normal">
+      <header className="fixed top-0 left-0 right-0 z-50 flex items-center justify-between px-4 sm:px-6 lg:px-12 py-4 glass-panel border-x-0 border-t-0 rounded-none mix-blend-normal">
         <BrandLogo markId="brand-mark-nav" />
 
-        {/* Desktop Center Links */}
-        <nav className="hidden md:flex items-center gap-5 absolute left-1/2 -translate-x-1/2">
-          {(!isLoaded || !isSignedIn) ? (
+        {/* Desktop Center Links — lg+ so tablet width does not overlap logo/actions */}
+        <nav className="hidden lg:flex items-center gap-4 xl:gap-5 absolute left-1/2 -translate-x-1/2" aria-busy={!isLoaded}>
+          {!isLoaded ? (
+            PUBLIC_LINKS.map((link) => (
+              <span
+                key={link.label}
+                className="text-sm font-semibold text-transparent bg-slate-100 rounded-md select-none"
+              >
+                {link.label}
+              </span>
+            ))
+          ) : showGuestChrome ? (
             PUBLIC_LINKS.map((link) => (
               <Link
                 key={link.label}
@@ -170,15 +201,27 @@ export default function MainNav() {
                 className="text-sm font-bold text-slate-600 hover:text-[var(--color-ink)] transition-colors flex items-center gap-1.5 whitespace-nowrap"
               >
                 <link.icon className="w-3.5 h-3.5" />
-                {link.label}
+                <span className="relative">
+                  {link.label}
+                  {link.href.includes("/notifications") && unreadCount > 0 ? (
+                    <span className="absolute -top-2 -right-4 min-w-[1.1rem] h-4 px-1 rounded-full bg-emerald-500 text-white text-[9px] font-black leading-4 text-center">
+                      {unreadCount > 9 ? "9+" : unreadCount}
+                    </span>
+                  ) : null}
+                </span>
               </Link>
             ))
           )}
         </nav>
 
         {/* Desktop Right Actions */}
-        <div className="hidden md:flex items-center gap-3">
-          {(!isLoaded || !isSignedIn) ? (
+        <div className="hidden lg:flex items-center gap-3">
+          {!isLoaded ? (
+            <>
+              <span className="inline-block h-9 w-16 rounded-2xl bg-slate-100" />
+              <span className="inline-block h-9 w-24 rounded-2xl bg-slate-100" />
+            </>
+          ) : showGuestChrome ? (
             <>
               <Button variant="ghost" size="sm" href="/login">
                 Log In
@@ -225,7 +268,7 @@ export default function MainNav() {
 
         {/* Mobile Menu Toggle */}
         <button
-          className="relative z-50 md:hidden w-10 h-10 flex flex-col items-center justify-center gap-1.5 focus-visible:outline-none"
+          className="relative z-50 lg:hidden w-10 h-10 flex flex-col items-center justify-center gap-1.5 focus-visible:outline-none"
           onClick={() => setIsOpen(!isOpen)}
           aria-label="Toggle Menu"
         >
@@ -252,7 +295,7 @@ export default function MainNav() {
             className="fixed inset-0 z-40 bg-[var(--color-paper)] flex flex-col pt-24 px-6 pb-10 overflow-y-auto overscroll-contain [touch-action:pan-y] [-webkit-overflow-scrolling:touch]"
           >
             <nav className="flex flex-col gap-5">
-              {(!isLoaded || !isSignedIn) ? (
+              {!isLoaded ? null : showGuestChrome ? (
                 PUBLIC_LINKS.map((link, i) => (
                   <motion.div
                     key={link.label}
@@ -263,7 +306,7 @@ export default function MainNav() {
                     <Link
                       href={link.href}
                       onClick={() => setIsOpen(false)}
-                      className="font-display font-bold text-3xl text-[var(--color-ink)] hover:text-[var(--color-emerald)] transition-colors"
+                      className="font-display font-bold text-2xl sm:text-3xl text-[var(--color-ink)] hover:text-[var(--color-emerald)] transition-colors"
                     >
                       {link.label}
                     </Link>
@@ -283,14 +326,21 @@ export default function MainNav() {
                       className="font-display font-bold text-2xl text-[var(--color-ink)] hover:text-[var(--color-emerald)] transition-colors flex items-center gap-3"
                     >
                       <link.icon className="w-5 h-5" />
-                      {link.label}
+                      <span className="relative">
+                        {link.label}
+                        {link.href.includes("/notifications") && unreadCount > 0 ? (
+                          <span className="absolute -top-1 -right-6 min-w-[1.25rem] h-5 px-1 rounded-full bg-emerald-500 text-white text-[10px] font-black leading-5 text-center">
+                            {unreadCount > 9 ? "9+" : unreadCount}
+                          </span>
+                        ) : null}
+                      </span>
                     </Link>
                   </motion.div>
                 ))
               )}
             </nav>
             <div className="mt-auto flex flex-col gap-4 pt-6">
-              {(!isLoaded || !isSignedIn) ? (
+              {!isLoaded ? null : showGuestChrome ? (
                 <>
                   <Button variant="outline" href="/login" onClick={() => setIsOpen(false)}>Log In</Button>
                   <Button variant="primary" href="/sign-up" onClick={() => setIsOpen(false)}>Start Free</Button>

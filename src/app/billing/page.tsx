@@ -13,6 +13,15 @@ import {
   CheckCircle2,
   History,
 } from "lucide-react";
+import { PaymentIssueBanner } from "@/components/billing/PaymentIssueBanner";
+import { DownloadQuotaMeter } from "@/components/membership/DownloadQuotaMeter";
+import { daysRemainingLabel, planTierLabel } from "@/lib/membership/labels";
+import {
+  fetchWithTimeout,
+  readJsonSafe,
+  RequestTimeoutError,
+} from "@/lib/http/fetch-timeout";
+import { useInFlightLock } from "@/lib/ui/useInFlightLock";
 import type { PaymentResponse, PaymentStatus } from "@/types/payment";
 import type { SubscriptionResponse } from "@/types/subscription";
 
@@ -100,9 +109,22 @@ export default function BillingPage() {
     [subscriptions]
   );
 
-  const lastFailedPayment = useMemo(
-    () => payments.find((p) => p.status === "failed") ?? null,
-    [payments]
+  const activePaidSubscriptions = useMemo(
+    () =>
+      subscriptions.filter(
+        (s) =>
+          (s.status === "active" || s.status === "trialing" || s.status === "past_due") &&
+          s.accessLevel !== "free"
+      ),
+    [subscriptions]
+  );
+
+  const hasPastDue = useMemo(
+    () =>
+      subscriptions.some(
+        (s) => s.status === "past_due" && s.accessLevel !== "free"
+      ),
+    [subscriptions]
   );
 
   const lastSuccessfulPayment = useMemo(
@@ -117,24 +139,34 @@ export default function BillingPage() {
 
   const [isOpeningPortal, setIsOpeningPortal] = useState(false);
   const [portalError, setPortalError] = useState("");
+  const portalLock = useInFlightLock();
 
   async function openBillingPortal() {
+    if (!portalLock.begin()) return;
     setIsOpeningPortal(true);
     setPortalError("");
     try {
-      const res = await fetch("/api/billing-portal", {
+      const res = await fetchWithTimeout("/api/billing-portal", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ returnUrl: typeof window !== "undefined" ? window.location.href : undefined }),
+        timeoutMs: 15_000,
       });
-      const data = (await res.json()) as { url?: string; error?: string };
+      const data = await readJsonSafe<{ url?: string; error?: string }>(res);
       if (!res.ok || !data.url) {
         throw new Error(data.error || "Stripe billing portal is unavailable right now.");
       }
       window.location.href = data.url;
     } catch (err) {
-      setPortalError(err instanceof Error ? err.message : "Stripe billing portal is unavailable right now.");
+      setPortalError(
+        err instanceof RequestTimeoutError
+          ? "Stripe didn’t respond. Your card was not changed. Try again."
+          : err instanceof Error
+            ? err.message
+            : "Stripe billing portal is unavailable right now."
+      );
       setIsOpeningPortal(false);
+      portalLock.end();
     }
   }
 
@@ -150,7 +182,7 @@ export default function BillingPage() {
               <Badge variant="sky">Billing Hub</Badge>
             </MotionItem>
             <MotionItem>
-              <h1 className="text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.1] mb-4">
                 Billing And <span className="text-gradient-primary">Payment History</span>
               </h1>
             </MotionItem>
@@ -164,9 +196,9 @@ export default function BillingPage() {
       </section>
 
       <Container className="max-w-5xl">
-        <div className="grid lg:grid-cols-3 gap-10">
+        <div className="grid lg:grid-cols-3 gap-6 lg:gap-10">
 
-          <div className="lg:col-span-2 space-y-10">
+          <div className="lg:col-span-2 space-y-10 min-w-0">
 
             {errorMessage && (
               <MotionReveal>
@@ -189,38 +221,15 @@ export default function BillingPage() {
               </MotionReveal>
             )}
 
-            {/* ── 5. Failed Payment Alert (real, only when needed) ── */}
-            {lastFailedPayment && (
-              <MotionReveal>
-                <div className="bg-red-50 border border-red-200 rounded-2xl p-6 flex items-start gap-4 shadow-sm">
-                  <AlertCircle className="w-6 h-6 text-red-500 shrink-0 mt-0.5" />
-                  <div>
-                    <h3 className="font-bold text-red-900 mb-1">Action Required: Payment Failed</h3>
-                    <p className="text-sm text-red-800 font-medium leading-relaxed mb-3">
-                      Your latest payment of{" "}
-                      <span className="font-black">
-                        {formatCurrency(lastFailedPayment.amountCents, lastFailedPayment.currency)}
-                      </span>{" "}
-                      to {lastFailedPayment.creatorName} could not be processed. Update your billing method to
-                      keep your access.
-                    </p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      className="bg-white border-red-200 text-red-700 hover:bg-red-50 py-1.5 h-auto text-xs"
-                      onClick={openBillingPortal}
-                      disabled={isOpeningPortal}
-                    >
-                      {isOpeningPortal ? "Opening Stripe…" : "Update Billing Method"}
-                    </Button>
-                  </div>
-                </div>
-              </MotionReveal>
-            )}
+            <PaymentIssueBanner
+              subscriptions={subscriptions}
+              onUpdateBilling={openBillingPortal}
+              updating={isOpeningPortal}
+            />
 
             {/* ── 2 & 3. Billing Status & Payment Method ── */}
             <MotionReveal>
-              <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-8 md:p-10 relative overflow-hidden">
+              <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm p-5 sm:p-8 md:p-10 relative overflow-hidden">
                 <div className="absolute top-0 right-0 w-48 h-48 bg-sky-500/10 rounded-full blur-3xl pointer-events-none" />
 
                 <h2 className="text-2xl font-black font-display text-[var(--color-ink)] mb-8 relative z-10">
@@ -235,7 +244,7 @@ export default function BillingPage() {
                       </h3>
                       {isLoading ? (
                         <div className="text-slate-400 font-medium">Loading…</div>
-                      ) : lastFailedPayment ? (
+                      ) : hasPastDue ? (
                         <div className="flex items-center gap-2 text-red-600 font-bold">
                           <AlertCircle className="w-5 h-5" /> Payment failed
                         </div>
@@ -265,14 +274,26 @@ export default function BillingPage() {
                     </div>
                     <div>
                       <h3 className="text-sm font-bold text-slate-500 mb-2 uppercase tracking-widest">
-                        Next Renewal
+                        Paid memberships
                       </h3>
-                      {activePaidSubscription && activePaidSubscription.currentPeriodEnd ? (
-                        <div className="text-[var(--color-ink)] font-bold">
-                          {formatDate(activePaidSubscription.currentPeriodEnd)}{" "}
-                          <span className="text-slate-400 font-medium ml-1">
-                            (${activePaidSubscription.priceMonthly.toFixed(activePaidSubscription.priceMonthly % 1 === 0 ? 0 : 2)})
-                          </span>
+                      {activePaidSubscriptions.length > 0 ? (
+                        <div className="space-y-3">
+                          {activePaidSubscriptions.map((sub) => (
+                            <div key={sub.id}>
+                              <div className="text-[var(--color-ink)] font-bold">
+                                {planTierLabel(sub.accessLevel)} · {sub.creatorName}
+                              </div>
+                              <div className="text-sm text-slate-500 font-medium">
+                                {daysRemainingLabel(sub.currentPeriodEnd, {
+                                  ending: sub.cancelAtPeriodEnd,
+                                }) ||
+                                  (sub.currentPeriodEnd
+                                    ? `Next charge ${formatDate(sub.currentPeriodEnd)}`
+                                    : "Active")}
+                              </div>
+                              <DownloadQuotaMeter quota={sub.downloadQuota} compact />
+                            </div>
+                          ))}
                         </div>
                       ) : (
                         <div className="text-slate-500 font-medium">
@@ -325,8 +346,8 @@ export default function BillingPage() {
             {/* ── 4. Invoice History ── */}
             <MotionReveal>
               <div className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden">
-                <div className="p-8 border-b border-slate-100 flex items-center justify-between">
-                  <h2 className="text-2xl font-black font-display text-[var(--color-ink)]">
+                <div className="p-5 sm:p-8 border-b border-slate-100 flex items-center justify-between gap-3">
+                  <h2 className="text-xl sm:text-2xl font-black font-display text-[var(--color-ink)]">
                     Invoice History
                   </h2>
                   <History className="w-6 h-6 text-slate-400" />
@@ -352,8 +373,8 @@ export default function BillingPage() {
                     </Button>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left border-collapse">
+                  <div className="overflow-x-auto min-w-0">
+                    <table className="w-full text-left border-collapse min-w-[640px]">
                       <thead>
                         <tr className="bg-slate-50 border-b border-slate-100 text-xs font-bold text-slate-500 uppercase tracking-widest">
                           <th className="p-6 font-bold">Date</th>
@@ -412,7 +433,7 @@ export default function BillingPage() {
             </MotionReveal>
           </div>
 
-          <div className="lg:col-span-1 space-y-6">
+          <div className="lg:col-span-1 space-y-6 min-w-0">
             {/* ── 6. Billing FAQ Card ── */}
             <MotionReveal className="sticky top-24 space-y-6">
               <div className="bg-white border border-slate-200 rounded-[2rem] p-8 shadow-sm">

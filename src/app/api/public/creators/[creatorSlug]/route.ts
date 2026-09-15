@@ -58,7 +58,7 @@ export async function GET(
     console.error("[public:creator]", error);
     return NextResponse.json(
       { creator: null, content: [], plans: [], viewer: null },
-      { status: 500 }
+      { status: 200 }
     );
   }
 }

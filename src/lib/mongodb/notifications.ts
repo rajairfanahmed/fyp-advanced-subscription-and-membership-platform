@@ -7,6 +7,7 @@ import {
   NotificationModel,
   UserProfileModel,
   CreatorProfileModel,
+  SubscriberProfileModel,
   type NotificationDocument,
 } from "@/lib/mongodb/models";
 import type { CreatorWorkspaceAlerts } from "@/types/profile";
@@ -127,13 +128,8 @@ async function recipientAllowsCategory(
 ): Promise<boolean> {
   const profile = (await UserProfileModel.findOne(
     { clerkUserId },
-    { role: 1, subscriberProfile: 1 }
-  ).lean()) as {
-    role?: string;
-    subscriberProfile?: {
-      notificationPreferences?: Partial<NotificationPreferenceFields>;
-    };
-  } | null;
+    { role: 1 }
+  ).lean()) as { role?: string } | null;
 
   if (creatorWorkspaceAlertKey && profile?.role === "creator") {
     const cp = await CreatorProfileModel.findOne({ clerkUserId }, { creatorWorkspaceAlerts: 1 }).lean();
@@ -144,7 +140,10 @@ async function recipientAllowsCategory(
   const prefField = CATEGORY_TO_PREFERENCE[category];
   if (!prefField) return true;
 
-  const prefs = profile?.subscriberProfile?.notificationPreferences;
+  const subscriber = await SubscriberProfileModel.findOne({ clerkUserId });
+  const prefs = subscriber?.notificationPreferences as
+    | Partial<NotificationPreferenceFields>
+    | undefined;
   if (!prefs) return true;
   const value = prefs[prefField];
   return value !== false;
@@ -322,34 +321,48 @@ export async function broadcastNotification(
   }
 
   const audience = input.audience;
-  let query: Record<string, unknown> = {};
-  if (audience === "subscribers") query = { role: "subscriber" };
-  else if (audience === "creators") query = { role: "creator" };
-  // For "all" and "admins" we'll filter client-side after the fetch.
+  const query: Record<string, unknown> = {};
+  if (audience === "subscribers") query.role = "subscriber";
+  else if (audience === "creators") query.role = "creator";
 
-  const recipients = await UserProfileModel.find(query, { clerkUserId: 1, email: 1 });
+  const PAGE = 400;
+  const INSERT_CHUNK = 100;
+  let skip = 0;
+  let recipientsCount = 0;
 
-  const filtered =
-    audience === "admins"
-      ? recipients.filter((u) => isAdminEmail(u.email))
-      : recipients;
+  while (true) {
+    const batch = await UserProfileModel.find(query).skip(skip).limit(PAGE);
+    if (batch.length === 0) break;
 
-  if (filtered.length === 0) {
-    return { recipientsCount: 0 };
+    const filtered = (
+      audience === "admins" ? batch.filter((u) => isAdminEmail(u.email)) : batch
+    ).filter((u) => u.accountStatus !== "deleted" && u.clerkUserId);
+
+    if (input.dryRun) {
+      recipientsCount += filtered.length;
+    } else if (filtered.length) {
+      for (let i = 0; i < filtered.length; i += INSERT_CHUNK) {
+        const chunk = filtered.slice(i, i + INSERT_CHUNK);
+        await NotificationModel.insertMany(
+          chunk.map((u) => ({
+            recipientClerkUserId: u.clerkUserId,
+            category: "system" as NotificationCategory,
+            title: subject,
+            message: body,
+            link: "",
+            metadata: { source: "admin_broadcast", audience },
+            isRead: false,
+            readAt: null,
+          })),
+          { ordered: false }
+        );
+        recipientsCount += chunk.length;
+      }
+    }
+
+    skip += batch.length;
+    if (batch.length < PAGE) break;
   }
 
-  const docs = filtered.map((u) => ({
-    recipientClerkUserId: u.clerkUserId,
-    category: "system" as NotificationCategory,
-    title: subject,
-    message: body,
-    link: "",
-    metadata: { source: "admin_broadcast", audience },
-    isRead: false,
-    readAt: null,
-  }));
-
-  await NotificationModel.insertMany(docs, { ordered: false });
-
-  return { recipientsCount: filtered.length };
+  return { recipientsCount };
 }

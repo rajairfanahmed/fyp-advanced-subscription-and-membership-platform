@@ -18,11 +18,14 @@ const SUPPRESSED_CURSOR_PREFIXES = [
   "/subscription",
   "/notifications",
   "/library",
+  "/creators",
+  "/pricing",
   "/sign-in",
   "/sign-up",
   "/login",
   "/verify-email",
   "/reset-password",
+  "/forgot-password",
   "/maintenance",
 ];
 

@@ -5,10 +5,12 @@ import { Container } from "@/components/layout/Container";
 import { MotionReveal, MotionItem } from "@/components/ui/MotionReveal";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
+import { FormField } from "@/components/forms/FormField";
 import {
   Send, CreditCard, LayoutDashboard, ShieldCheck,
   CheckCircle2, AlertCircle, Loader2
 } from "lucide-react";
+import { fieldInputClass, validateEmail, validateRequiredName } from "@/lib/auth/form-validation";
 
 // --- Static Data ---
 const CONTACT_CARDS = [
@@ -49,9 +51,35 @@ export default function ContactPage() {
   const [topic, setTopic] = useState("");
   const [message, setMessage] = useState("");
   const [status, setStatus] = useState<FormStatus>({ kind: "idle" });
+  const [fieldErrors, setFieldErrors] = useState<{
+    fullName?: string;
+    email?: string;
+    role?: string;
+    topic?: string;
+    message?: string;
+  }>({});
+
+  function validateContact() {
+    const next = {
+      fullName: validateRequiredName(fullName) ?? undefined,
+      email: validateEmail(email) ?? undefined,
+      role: role ? undefined : "Please select a role.",
+      topic: topic ? undefined : "Please select a topic.",
+      message:
+        message.trim().length < 10
+          ? "Please describe how we can help in a little more detail."
+          : message.trim().length > 2000
+            ? "Message is too long."
+            : undefined,
+    };
+    setFieldErrors(next);
+    return !next.fullName && !next.email && !next.role && !next.topic && !next.message;
+  }
 
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!validateContact()) return;
+    if (status.kind === "submitting") return;
     setStatus({ kind: "submitting" });
 
     try {
@@ -95,8 +123,8 @@ export default function ContactPage() {
             </MotionItem>
 
             <MotionItem>
-              <h1 className="text-5xl md:text-6xl lg:text-7xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6">
-                Contact The <span className="text-gradient-primary">Advanced Subscription & Membership Platform Team</span>
+              <h1 className="text-3xl sm:text-5xl md:text-6xl lg:text-7xl font-black font-display tracking-tight text-[var(--color-ink)] leading-[1.05] mb-6 break-words">
+                Contact us
               </h1>
             </MotionItem>
 
@@ -138,32 +166,38 @@ export default function ContactPage() {
                   </div>
                 )}
 
-                <form className="space-y-6" onSubmit={handleFormSubmit}>
+                <form className="space-y-6" onSubmit={handleFormSubmit} noValidate>
                   <div className="grid sm:grid-cols-2 gap-6">
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-700" htmlFor="contact-name">Full Name</label>
-                      <input
-                        id="contact-name"
-                        type="text"
-                        required
-                        value={fullName}
-                        onChange={(e) => setFullName(e.target.value)}
-                        placeholder="Jane Doe"
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <label className="text-sm font-bold text-slate-700" htmlFor="contact-email">Email Address</label>
-                      <input
-                        id="contact-email"
-                        type="email"
-                        required
-                        value={email}
-                        onChange={(e) => setEmail(e.target.value)}
-                        placeholder="jane@example.com"
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all"
-                      />
-                    </div>
+                    <FormField
+                      id="contact-name"
+                      label="Full Name"
+                      type="text"
+                      autoComplete="name"
+                      value={fullName}
+                      placeholder="Jane Doe"
+                      error={fieldErrors.fullName}
+                      onChange={(e) => {
+                        setFullName(e.target.value);
+                        if (fieldErrors.fullName) {
+                          setFieldErrors((prev) => ({ ...prev, fullName: validateRequiredName(e.target.value) ?? undefined }));
+                        }
+                      }}
+                    />
+                    <FormField
+                      id="contact-email"
+                      label="Email Address"
+                      type="email"
+                      autoComplete="email"
+                      value={email}
+                      placeholder="jane@example.com"
+                      error={fieldErrors.email}
+                      onChange={(e) => {
+                        setEmail(e.target.value);
+                        if (fieldErrors.email) {
+                          setFieldErrors((prev) => ({ ...prev, email: validateEmail(e.target.value) ?? undefined }));
+                        }
+                      }}
+                    />
                   </div>
 
                   <div className="grid sm:grid-cols-2 gap-6">
@@ -173,8 +207,12 @@ export default function ContactPage() {
                         id="contact-role"
                         required
                         value={role}
-                        onChange={(e) => setRole(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-[var(--color-ink)] appearance-none cursor-pointer"
+                        aria-invalid={Boolean(fieldErrors.role)}
+                        onChange={(e) => {
+                          setRole(e.target.value);
+                          setFieldErrors((prev) => ({ ...prev, role: undefined }));
+                        }}
+                        className={`${fieldInputClass(Boolean(fieldErrors.role))} appearance-none cursor-pointer`}
                       >
                         <option value="" disabled>Select a role...</option>
                         <option value="Visitor">Visitor</option>
@@ -182,6 +220,7 @@ export default function ContactPage() {
                         <option value="Creator">Creator</option>
                         <option value="Admin">Admin</option>
                       </select>
+                      {fieldErrors.role ? <p className="text-xs font-medium text-red-600">{fieldErrors.role}</p> : null}
                     </div>
                     <div className="space-y-2">
                       <label className="text-sm font-bold text-slate-700" htmlFor="contact-topic">Support Topic</label>
@@ -189,8 +228,12 @@ export default function ContactPage() {
                         id="contact-topic"
                         required
                         value={topic}
-                        onChange={(e) => setTopic(e.target.value)}
-                        className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all text-[var(--color-ink)] appearance-none cursor-pointer"
+                        aria-invalid={Boolean(fieldErrors.topic)}
+                        onChange={(e) => {
+                          setTopic(e.target.value);
+                          setFieldErrors((prev) => ({ ...prev, topic: undefined }));
+                        }}
+                        className={`${fieldInputClass(Boolean(fieldErrors.topic))} appearance-none cursor-pointer`}
                       >
                         <option value="" disabled>Select a topic...</option>
                         <option value="Account Access">Account Access</option>
@@ -201,6 +244,7 @@ export default function ContactPage() {
                         <option value="Admin Controls">Admin Controls</option>
                         <option value="General Question">General Question</option>
                       </select>
+                      {fieldErrors.topic ? <p className="text-xs font-medium text-red-600">{fieldErrors.topic}</p> : null}
                     </div>
                   </div>
 
@@ -213,10 +257,28 @@ export default function ContactPage() {
                       minLength={10}
                       maxLength={2000}
                       value={message}
-                      onChange={(e) => setMessage(e.target.value)}
+                      aria-invalid={Boolean(fieldErrors.message)}
+                      onChange={(e) => {
+                        setMessage(e.target.value);
+                        if (fieldErrors.message) {
+                          const v = e.target.value.trim();
+                          setFieldErrors((prev) => ({
+                            ...prev,
+                            message:
+                              v.length < 10
+                                ? "Please describe how we can help in a little more detail."
+                                : undefined,
+                          }));
+                        }
+                      }}
                       placeholder="How can we help you today?"
-                      className="w-full px-4 py-3 bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all resize-none"
+                      className={`${fieldInputClass(Boolean(fieldErrors.message))} resize-none`}
                     />
+                    {fieldErrors.message ? (
+                      <p className="text-xs font-medium text-red-600">{fieldErrors.message}</p>
+                    ) : (
+                      <p className="text-xs font-medium text-slate-500">{message.trim().length}/2000</p>
+                    )}
                   </div>
 
                   <Button

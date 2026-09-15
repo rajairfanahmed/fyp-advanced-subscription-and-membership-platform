@@ -7,6 +7,7 @@ import {
   listPublishedContent,
   parseContentSavePayload,
 } from "@/lib/mongodb/content";
+import { PRIVATE_NO_STORE } from "@/lib/http/cache";
 
 /**
  * Content metadata save. Files (video, downloadable, thumbnail) are
@@ -25,16 +26,16 @@ export async function GET(req: NextRequest) {
     if (scope === "creator") {
       const { userId } = await auth();
       if (!userId) {
-        return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+        return NextResponse.json({ error: "Not authenticated" }, { status: 401, headers: PRIVATE_NO_STORE });
       }
 
       const content = await listCurrentCreatorContent();
-      return NextResponse.json({ content });
+      return NextResponse.json({ content }, { headers: PRIVATE_NO_STORE });
     }
 
     const { userId } = await auth();
     const content = await listPublishedContent({ viewerClerkUserId: userId ?? undefined });
-    return NextResponse.json({ content });
+    return NextResponse.json({ content }, { headers: PRIVATE_NO_STORE });
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unable to load content.";
     if (

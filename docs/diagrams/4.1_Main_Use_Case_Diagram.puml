@@ -1,0 +1,113 @@
+@startuml Main_Use_Case_Diagram
+!pragma layout smetana
+title Figure 4.1 : Main Use Case Diagram
+
+skinparam monochrome true
+skinparam shadowing false
+skinparam defaultFontSize 13
+skinparam wrapWidth 180
+skinparam ArrowThickness 1.1
+skinparam usecase {
+  BackgroundColor #FFFFFF
+  BorderColor #000000
+}
+skinparam actor {
+  BackgroundColor #FFFFFF
+  BorderColor #000000
+  FontStyle bold
+}
+skinparam rectangle {
+  BackgroundColor #FFFFFF
+  BorderColor #000000
+}
+skinparam package {
+  BackgroundColor #FFFFFF
+  BorderColor #000000
+  FontStyle bold
+}
+skinparam note {
+  BackgroundColor #FFFFFF
+  BorderColor #000000
+}
+
+left to right direction
+
+actor "Guest" as Guest
+actor "Subscriber" as Subscriber
+actor "Creator" as Creator
+actor "Admin" as Admin
+
+rectangle "Advanced Subscription and Membership Platform" {
+  package "Public access" {
+    usecase "Browse public pages" as UC_Browse
+    usecase "Browse creators and previews" as UC_Creators
+    usecase "Submit contact message" as UC_Contact
+    usecase "Register account" as UC_Register
+    usecase "Sign in and verify email" as UC_SignIn
+    usecase "Reset password" as UC_Reset
+  }
+
+  package "Subscriber membership" {
+    usecase "Follow creator (Free)" as UC_Follow
+    usecase "Subscribe via Stripe Checkout" as UC_Checkout
+    usecase "Manage billing in Stripe Portal" as UC_Portal
+    usecase "Access library and gated content" as UC_Library
+    usecase "Download file within quota" as UC_Download
+    usecase "Update account profile" as UC_Account
+    usecase "Read in-app notifications" as UC_Notify
+  }
+
+  package "Creator workspace" {
+    usecase "Manage creator workspace" as UC_Workspace
+    usecase "Publish video, article, or file" as UC_Content
+    usecase "Manage Free / Basic / Premium plans" as UC_Plans
+    usecase "View subscribers, revenue, analytics" as UC_CreatorDash
+  }
+
+  package "Admin oversight" {
+    usecase "Manage users and suspend accounts" as UC_Users
+    usecase "Oversee content, plans, and payments" as UC_Oversee
+    usecase "Cancel or reactivate via Stripe" as UC_AdminSub
+    usecase "Refund or retry a payment" as UC_Refund
+    usecase "Toggle maintenance mode" as UC_Maint
+  }
+}
+
+Guest --> UC_Browse
+Guest --> UC_Creators
+Guest --> UC_Contact
+Guest --> UC_Register
+Guest --> UC_SignIn
+Guest --> UC_Reset
+
+Subscriber --> UC_Creators
+Subscriber --> UC_Follow
+Subscriber --> UC_Checkout
+Subscriber --> UC_Portal
+Subscriber --> UC_Library
+Subscriber --> UC_Download
+Subscriber --> UC_Account
+Subscriber --> UC_Notify
+
+Creator --> UC_Workspace
+Creator --> UC_Content
+Creator --> UC_Plans
+Creator --> UC_CreatorDash
+Creator --> UC_Account
+Creator --> UC_Notify
+
+Admin --> UC_Users
+Admin --> UC_Oversee
+Admin --> UC_AdminSub
+Admin --> UC_Refund
+Admin --> UC_Maint
+Admin --> UC_Notify
+
+note as N1
+  Clerk roles are subscriber or creator only.
+  Admin is granted by ADMIN_EMAILS.
+  Creators cannot Follow, Checkout,
+  open Library, or use Billing.
+end note
+
+@enduml

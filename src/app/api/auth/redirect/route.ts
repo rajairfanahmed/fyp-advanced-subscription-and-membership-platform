@@ -38,6 +38,9 @@ export async function GET() {
 
     return NextResponse.json({ redirect, authenticated: true });
   } catch {
-    return NextResponse.json({ redirect: "/library", authenticated: false });
+    return NextResponse.json(
+      { redirect: "/login", authenticated: false, error: "Unauthorized" },
+      { status: 401 }
+    );
   }
 }
