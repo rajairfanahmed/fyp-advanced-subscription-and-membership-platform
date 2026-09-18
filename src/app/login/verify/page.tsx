@@ -65,6 +65,10 @@ export default function LoginVerifyPage() {
       setError("Sign-in did not finish. Try logging in again.");
       return;
     }
+    if (!setActive) {
+      setError("Authentication is still loading. Please wait a moment and try again.");
+      return;
+    }
     await setActive({ session: sessionId });
     const res = await fetch("/api/auth/redirect", {
       cache: "no-store",

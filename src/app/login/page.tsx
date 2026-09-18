@@ -94,7 +94,7 @@ function LoginForm() {
 
   async function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!isLoaded || !signIn) {
+    if (!isLoaded || !signIn || !setActive) {
       setError("Authentication is still loading. Please wait a moment and try again.");
       return;
     }
@@ -180,7 +180,7 @@ function LoginForm() {
 
   // ── Google OAuth Login ──
   async function handleGoogleLogin() {
-    if (!isLoaded || !signIn) {
+    if (!isLoaded || !signIn || !setActive) {
       setError("Authentication is still loading. Please wait a moment and try again.");
       return;
     }
