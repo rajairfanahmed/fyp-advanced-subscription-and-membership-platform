@@ -105,17 +105,21 @@ export default function LibraryPage() {
   const [cards, setCards] = useState<LibraryCard[]>([]);
   const [subscriptions, setSubscriptions] = useState<SubscriptionResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     async function loadContent() {
       setIsLoading(true);
+      setLoadError("");
       try {
         const [contentRes, subRes] = await Promise.all([
           fetch("/api/content", { cache: "no-store" }),
           fetch("/api/subscriptions/me", { cache: "no-store" }),
         ]);
-        if (!contentRes.ok) throw new Error("Failed");
+        if (!contentRes.ok) {
+          throw new Error("The library could not load. Check that Vercel DATABASE_URL points at Neon with sslmode=require.");
+        }
         const data = (await contentRes.json()) as { content: ContentResponse[] };
         const subData = subRes.ok
           ? ((await subRes.json()) as { subscriptions?: SubscriptionResponse[] })
@@ -124,9 +128,15 @@ export default function LibraryPage() {
           setCards((data.content ?? []).map(contentToCard));
           setSubscriptions(subData.subscriptions ?? []);
         }
-      } catch {
-        if (!cancelled) setCards([]);
-      } finally {
+      } catch (error) {
+        if (!cancelled) {
+          setCards([]);
+          setLoadError(
+            error instanceof Error
+              ? error.message
+              : "The library could not load."
+          );
+        } finally {
         if (!cancelled) setIsLoading(false);
       }
     }
@@ -274,6 +284,14 @@ export default function LibraryPage() {
       {!isLoading && (
         <Container className="mb-8 empty:hidden">
           <PaymentIssueBanner subscriptions={subscriptions} />
+        </Container>
+      )}
+
+      {!isLoading && loadError && (
+        <Container className="mb-8">
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-5 text-sm font-medium text-red-800 leading-relaxed">
+            {loadError}
+          </div>
         </Container>
       )}
 
