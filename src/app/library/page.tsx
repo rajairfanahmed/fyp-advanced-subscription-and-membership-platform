@@ -136,7 +136,8 @@ export default function LibraryPage() {
               ? error.message
               : "The library could not load."
           );
-        } finally {
+        }
+      } finally {
         if (!cancelled) setIsLoading(false);
       }
     }
