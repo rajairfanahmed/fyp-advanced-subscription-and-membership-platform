@@ -16,36 +16,14 @@ import {
   rememberReturnPathFromSearchParams,
 } from "@/lib/auth/post-login-redirect";
 import { assertAuthThrottle } from "@/lib/auth/auth-throttle";
+import {
+  clerkSignInErrorMessage,
+  GOOGLE_ONLY_LOGIN_MESSAGE,
+  prepareSignInEmailCode,
+  signInHasGoogleFactor,
+  signInHasPasswordFactor,
+} from "@/lib/auth/clerk-sign-in";
 import { validateEmail, validatePassword } from "@/lib/auth/form-validation";
-
-type ClerkFormError = {
-  code?: string;
-  message?: string;
-  longMessage?: string;
-  meta?: {
-    paramName?: string;
-  };
-};
-
-function getFriendlySignInError(err: unknown) {
-  const clerkError = err as { errors?: ClerkFormError[]; status?: number };
-  const firstError = clerkError.errors?.[0];
-  const errCode = firstError?.code || "";
-
-  if (errCode === "form_password_pwned") {
-    return "This password cannot be used. Please reset your password.";
-  }
-
-  if (errCode === "strategy_for_user_invalid") {
-    return "This account uses a different login method. Try Continue with Google or reset your password.";
-  }
-
-  if (errCode === "session_exists") {
-    return "You are already signed in. Redirecting...";
-  }
-
-  return "Invalid email or password. Please try again.";
-}
 
 function LoginForm() {
   const router = useRouter();
@@ -133,17 +111,28 @@ function LoginForm() {
         return;
       }
 
-      const result = await signIn.create({
-        strategy: "password",
+      const created = await signIn.create({
         identifier: email.trim().toLowerCase(),
+      });
+
+      if (!signInHasPasswordFactor(created) && signInHasGoogleFactor(created)) {
+        setError(GOOGLE_ONLY_LOGIN_MESSAGE);
+        return;
+      }
+
+      if (!signInHasPasswordFactor(created)) {
+        setError(GOOGLE_ONLY_LOGIN_MESSAGE);
+        return;
+      }
+
+      const result = await signIn.attemptFirstFactor({
+        strategy: "password",
         password,
       });
 
       if (result.status === "complete") {
-        // Set session active
         await setActive({ session: result.createdSessionId });
 
-        // Fetch role-based redirect from server (handles admin email allowlist)
         try {
           const res = await fetch("/api/auth/redirect", {
             cache: "no-store",
@@ -155,14 +144,35 @@ function LoginForm() {
         } catch {
           router.push(consumeReturnPath("/library"));
         }
-      } else if (result.status === "needs_first_factor") {
-        setError("Please check your email or password and try again.");
-      } else {
-        // Handle other statuses (e.g., needs_second_factor)
-        setError("Additional verification required. Please check your email.");
+        return;
       }
+
+      if (
+        result.status === "needs_second_factor" ||
+        result.status === "needs_first_factor"
+      ) {
+        try {
+          const sent = await prepareSignInEmailCode(signIn);
+          if (!sent) {
+            setError(
+              "This sign-in needs an extra check, but email codes are not enabled for the account. Use Continue with Google or Forgot password."
+            );
+            return;
+          }
+          router.push("/login/verify");
+        } catch {
+          setError(
+            "We could not send the verification email. Check spam, confirm Clerk email is enabled, and add your Vercel URL under Clerk allowed redirect origins."
+          );
+        }
+        return;
+      }
+
+      setError(
+        "Sign-in needs another step. Use Continue with Google if you registered with Google, or try Forgot password."
+      );
     } catch (err: unknown) {
-      setError(getFriendlySignInError(err));
+      setError(clerkSignInErrorMessage(err));
     } finally {
       setIsSubmitting(false);
     }
