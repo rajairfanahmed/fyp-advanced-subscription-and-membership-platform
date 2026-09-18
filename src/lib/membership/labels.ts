@@ -34,3 +34,35 @@ export function daysRemainingLabel(
   if (days === 1) return "Renews tomorrow";
   return `Renews in ${days} days`;
 }
+
+export function formatPeriodDate(iso: string | Date | null | undefined): string {
+  if (!iso) return "";
+  const date = typeof iso === "string" ? new Date(iso) : iso;
+  if (!Number.isFinite(date.getTime())) return "";
+  return date.toLocaleDateString(undefined, {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * Always include the calendar date for paid Basic/Premium memberships so
+ * subscribers can see when access renews or ends — not only "in N days".
+ */
+export function membershipPeriodCopy(
+  iso: string | Date | null | undefined,
+  opts?: { ending?: boolean; accessLevel?: string | null }
+): string {
+  if (opts?.accessLevel === "free") return "";
+  const date = formatPeriodDate(iso);
+  const remaining = daysRemainingLabel(iso, { ending: opts?.ending });
+  if (opts?.ending) {
+    if (date && remaining) return `Access until ${date} · ${remaining}`;
+    if (date) return `Access until ${date}`;
+    return remaining;
+  }
+  if (date && remaining) return `${remaining} · Renews ${date}`;
+  if (date) return `Renews ${date}`;
+  return remaining;
+}

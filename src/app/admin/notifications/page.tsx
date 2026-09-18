@@ -392,8 +392,11 @@ export default function AdminNotificationsPage() {
                       <option value="all">All Users</option>
                       <option value="subscribers">All Subscribers</option>
                       <option value="creators">All Creators</option>
-                      <option value="admins">Admins Only</option>
+                      <option value="admins">Platform admins</option>
                     </select>
+                    <p className="text-[11px] font-medium text-slate-500 leading-relaxed">
+                      Platform admins is everyone listed in ADMIN_EMAILS — it still works when there is only one admin.
+                    </p>
                   </div>
 
                   <div className="space-y-3">

@@ -269,7 +269,7 @@ export default function RevenuePage() {
                     </div>
                     <p className="font-black text-slate-700 mb-1">No payments yet</p>
                     <p className="text-sm font-medium text-slate-500 max-w-md">
-                      Once members pay through Stripe checkout, charges and refunds will land here.
+                      Charges land here after Stripe confirms a member payment. If someone just subscribed, refresh this page in a few seconds.
                     </p>
                   </div>
                 ) : (

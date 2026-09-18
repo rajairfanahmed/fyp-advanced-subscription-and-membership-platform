@@ -15,6 +15,7 @@ import {
 } from "@/lib/mongodb/models";
 import { serializePayment } from "@/lib/mongodb/payments";
 import { listRecentSnapshotsForCreator } from "@/lib/mongodb/analytics-rollup";
+import { syncStripePayments } from "@/lib/stripe/payments-sync";
 import { daysRemaining, daysRemainingLabel } from "@/lib/membership/labels";
 import { snapshotFromSubscription } from "@/lib/mongodb/download-quota";
 import type {
@@ -451,6 +452,7 @@ export async function getCreatorRevenue(): Promise<CreatorRevenueResponse> {
   await connectToMongoDB();
   const ctx = await requireCreatorContext();
   const creatorClerkUserId = ctx.clerkUserId;
+  await syncStripePayments({ creatorClerkUserId });
 
   const sevenDaysFromNow = new Date();
   sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);

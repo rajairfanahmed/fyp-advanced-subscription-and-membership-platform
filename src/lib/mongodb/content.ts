@@ -17,6 +17,7 @@ import {
   type CreatorProfileDocument,
 } from "@/lib/mongodb/models";
 import { deleteFromCloudflareR2, storageKeyBelongsToUser } from "@/lib/storage";
+import { notifySubscriberOfCreatorPost } from "@/lib/mongodb/notifications";
 import { recalcCreatorContentCount } from "@/lib/mongodb/creator-counts";
 import {
   accessRank,
@@ -587,6 +588,56 @@ function assertSubtypeMatchesFile(fileSubtype: FileSubtype, fileName: string) {
   }
 }
 
+async function notifyMembersOfPublishedContent(input: {
+  creatorClerkUserId: string;
+  creatorName: string;
+  creatorSlug: string;
+  title: string;
+  contentId: string;
+  contentType: ContentType;
+  requiredPlan: RequiredPlan;
+}) {
+  const subs = await SubscriptionModel.find({
+    creatorClerkUserId: input.creatorClerkUserId,
+    status: { $in: ["active", "trialing", "past_due"] },
+  }).select({
+    subscriberClerkUserId: 1,
+    accessLevel: 1,
+    status: 1,
+    currentPeriodEnd: 1,
+    cancelAtPeriodEnd: 1,
+  });
+
+  const kind =
+    input.contentType === "file"
+      ? "a new download"
+      : input.contentType === "video"
+        ? "a new video"
+        : "a new article";
+  const link = input.creatorSlug
+    ? `/creators/${input.creatorSlug}`
+    : "/library";
+
+  for (const sub of subs) {
+    if (!sub.subscriberClerkUserId) continue;
+    if (sub.subscriberClerkUserId === input.creatorClerkUserId) continue;
+    if (!subscriptionGrantsAccess(sub)) continue;
+    if (!rankMeetsRequired(sub.accessLevel as string, input.requiredPlan)) continue;
+    try {
+      await notifySubscriberOfCreatorPost({
+        recipientClerkUserId: sub.subscriberClerkUserId,
+        category: input.contentType === "file" ? "locked" : "content",
+        title: "New content from a creator you follow",
+        message: `${input.creatorName} published ${kind}: “${input.title}”.`,
+        link,
+        metadata: { contentId: input.contentId, event: "content.published" },
+      });
+    } catch (error) {
+      console.warn("[content:notify-published]", error);
+    }
+  }
+}
+
 function validateSavePayload(input: {
   payload: ContentSavePayload;
   hasExistingThumbnail?: boolean;
@@ -680,6 +731,18 @@ export async function createCreatorContent(payload: ContentSavePayload) {
   await CreatorProfileModel.findByIdAndUpdate(context.creatorProfile._id, {
     $inc: { contentCount: 1 },
   });
+
+  if (payload.status === "published") {
+    await notifyMembersOfPublishedContent({
+      creatorClerkUserId: context.clerkUserId,
+      creatorName: context.creatorProfile.creatorName || "A creator",
+      creatorSlug: context.creatorProfile.creatorSlug || "",
+      title: content.title,
+      contentId: content._id.toString(),
+      contentType: content.contentType as ContentType,
+      requiredPlan: content.requiredPlan as RequiredPlan,
+    });
+  }
 
   return serializeContent(content);
 }
@@ -798,6 +861,18 @@ export async function updateCreatorContent(
     } catch (error) {
       console.warn("[content:recalc-content-count]", error);
     }
+  }
+
+  if (!wasPublished && payload.status === "published") {
+    await notifyMembersOfPublishedContent({
+      creatorClerkUserId: context.clerkUserId,
+      creatorName: context.creatorProfile.creatorName || "A creator",
+      creatorSlug: context.creatorProfile.creatorSlug || "",
+      title: content.title,
+      contentId: content._id.toString(),
+      contentType: content.contentType as ContentType,
+      requiredPlan: content.requiredPlan as RequiredPlan,
+    });
   }
 
   return serializeContent(content);

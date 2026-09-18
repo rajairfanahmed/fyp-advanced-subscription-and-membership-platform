@@ -555,6 +555,9 @@ export default function SettingsPage() {
                       </div>
                     ))}
                   </div>
+                  <p className="text-[11px] font-medium text-slate-500 leading-relaxed mt-6">
+                    These alerts are live. New subscribers, renewals, failed payments, daily engagement, and revenue summaries all write to your in-app inbox when the toggle is on.
+                  </p>
                 </div>
 
                 <div className="bg-white rounded-[2.5rem] border border-slate-200 p-5 sm:p-8 lg:p-10 shadow-sm">

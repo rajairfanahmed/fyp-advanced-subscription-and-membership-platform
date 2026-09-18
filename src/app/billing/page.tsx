@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { PaymentIssueBanner } from "@/components/billing/PaymentIssueBanner";
 import { DownloadQuotaMeter } from "@/components/membership/DownloadQuotaMeter";
-import { daysRemainingLabel, planTierLabel } from "@/lib/membership/labels";
+import { membershipPeriodCopy, planTierLabel } from "@/lib/membership/labels";
 import {
   fetchWithTimeout,
   readJsonSafe,
@@ -284,12 +284,10 @@ export default function BillingPage() {
                                 {planTierLabel(sub.accessLevel)} · {sub.creatorName}
                               </div>
                               <div className="text-sm text-slate-500 font-medium">
-                                {daysRemainingLabel(sub.currentPeriodEnd, {
+                                {membershipPeriodCopy(sub.currentPeriodEnd, {
                                   ending: sub.cancelAtPeriodEnd,
-                                }) ||
-                                  (sub.currentPeriodEnd
-                                    ? `Next charge ${formatDate(sub.currentPeriodEnd)}`
-                                    : "Active")}
+                                  accessLevel: sub.accessLevel,
+                                }) || "Active paid membership"}
                               </div>
                               <DownloadQuotaMeter quota={sub.downloadQuota} compact />
                             </div>
@@ -366,7 +364,7 @@ export default function BillingPage() {
                       No invoices yet
                     </h3>
                     <p className="text-slate-500 font-medium max-w-md mb-6">
-                      Once you pay for a Basic or Premium membership, your receipts will appear here.
+                      Paid Basic and Premium receipts appear here after Stripe confirms the charge. If you just subscribed, refresh this page in a few seconds.
                     </p>
                     <Button variant="primary" href="/creators">
                       Browse creators

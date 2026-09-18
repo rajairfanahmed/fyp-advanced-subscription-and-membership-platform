@@ -52,6 +52,9 @@ export async function listCurrentUserPayments(): Promise<PaymentResponse[]> {
   const synced = await ensureCurrentUserProfile();
   if (!synced) return [];
 
+  const { syncStripePayments } = await import("@/lib/stripe/payments-sync");
+  await syncStripePayments({ subscriberClerkUserId: synced.user.id });
+
   const docs = await PaymentModel.find({
     subscriberClerkUserId: synced.user.id,
   }).sort({ paidAt: -1, createdAt: -1 });

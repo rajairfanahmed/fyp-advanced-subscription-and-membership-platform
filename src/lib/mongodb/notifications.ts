@@ -71,9 +71,8 @@ export function serializeNotification(doc: NotificationDocument): NotificationRe
  * `userProfile.subscriberProfile.notificationPreferences` that
  * decides whether the user wants delivery for that category.
  *
- * `account` and `system` always pass — those are platform-essential
- * messages (suspension notices, security, etc.) and should never be
- * silenced by user preferences.
+ * `system` always passes — platform broadcasts should not be silenced.
+ * `account` follows the Account notices toggle.
  */
 const CATEGORY_TO_PREFERENCE: Partial<
   Record<NotificationCategory, keyof NotificationPreferenceFields>
@@ -83,6 +82,7 @@ const CATEGORY_TO_PREFERENCE: Partial<
   content: "contentDigests",
   locked: "downloadAlerts",
   creator: "creatorAnnouncements",
+  account: "accountNotices",
 };
 
 type NotificationPreferenceFields = {
@@ -208,6 +208,28 @@ export async function notifyIfAllowed(
   );
   if (!allowed) return null;
   return createNotification({ ...input, category });
+}
+
+/**
+ * New posts from a creator: deliver as a content digest when that
+ * toggle is on, otherwise as a creator announcement. File downloads
+ * still use the locked/downloadAlerts path via `notifyIfAllowed`.
+ */
+export async function notifySubscriberOfCreatorPost(
+  input: NotificationCreateInput
+): Promise<NotificationResponse | null> {
+  const recipientClerkUserId = cleanText(input.recipientClerkUserId);
+  if (!recipientClerkUserId) return null;
+  if (input.category === "locked") {
+    return notifyIfAllowed({ ...input, category: "locked" });
+  }
+  const contentOk = await recipientAllowsCategory(recipientClerkUserId, "content");
+  const creatorOk = await recipientAllowsCategory(recipientClerkUserId, "creator");
+  if (!contentOk && !creatorOk) return null;
+  return createNotification({
+    ...input,
+    category: contentOk ? "content" : "creator",
+  });
 }
 
 /**

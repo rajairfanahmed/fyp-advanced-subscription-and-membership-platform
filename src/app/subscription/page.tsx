@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
-import { daysRemainingLabel, planTierLabel } from "@/lib/membership/labels";
+import { membershipPeriodCopy, planTierLabel } from "@/lib/membership/labels";
 import { PaymentIssueBanner } from "@/components/billing/PaymentIssueBanner";
 import { CancelMembershipDialog } from "@/components/billing/CancelMembershipDialog";
 import { TIER_LIMITS } from "@/config/tier-limits";
@@ -331,9 +331,10 @@ export default function SubscriptionPage() {
                       </div>
                       {primarySubscription.currentPeriodEnd && (
                         <div className="text-sm text-slate-500 font-medium mt-1">
-                          {daysRemainingLabel(primarySubscription.currentPeriodEnd, {
+                          {membershipPeriodCopy(primarySubscription.currentPeriodEnd, {
                             ending: primarySubscription.cancelAtPeriodEnd,
-                          }) || `Renews ${formatRenewalDate(primarySubscription.currentPeriodEnd)}`}
+                            accessLevel: primarySubscription.accessLevel,
+                          })}
                         </div>
                       )}
                     </div>
@@ -399,14 +400,10 @@ export default function SubscriptionPage() {
                                 {planTierLabel(subscription.accessLevel)} · {subscription.planName} · {formatPrice(subscription.priceMonthly)}/mo
                               </p>
                               <p className="text-xs font-medium text-slate-500 mt-1">
-                                {subscription.accessLevel !== "free" &&
-                                daysRemainingLabel(subscription.currentPeriodEnd, {
+                                {membershipPeriodCopy(subscription.currentPeriodEnd, {
                                   ending: subscription.cancelAtPeriodEnd,
-                                })
-                                  ? daysRemainingLabel(subscription.currentPeriodEnd, {
-                                      ending: subscription.cancelAtPeriodEnd,
-                                    })
-                                  : null}
+                                  accessLevel: subscription.accessLevel,
+                                })}
                               </p>
                               <DownloadQuotaMeter quota={subscription.downloadQuota} />
                             </div>

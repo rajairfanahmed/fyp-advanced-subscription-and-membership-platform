@@ -17,7 +17,7 @@ import {
   SubscriptionModel,
   UserProfileModel,
 } from "@/lib/mongodb/models";
-import { createNotification } from "@/lib/mongodb/notifications";
+import { createNotification, notifyIfAllowed } from "@/lib/mongodb/notifications";
 import {
   pauseStripeSubscriptionCollection,
   resumeStripeSubscriptionCollection,
@@ -139,7 +139,7 @@ async function notifyCreatorAudience(input: {
   );
   await Promise.all(
     recipients.map((recipientClerkUserId) =>
-      createNotification({
+      notifyIfAllowed({
         recipientClerkUserId,
         category: "account",
         title: input.suspended
@@ -266,7 +266,7 @@ export async function deleteAdminUser(input: {
     );
     await Promise.all(
       recipients.map((recipientClerkUserId) =>
-        createNotification({
+        notifyIfAllowed({
           recipientClerkUserId,
           category: "account",
           title: `${creatorName} is no longer on the platform`,

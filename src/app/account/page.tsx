@@ -11,10 +11,11 @@ import type { NotificationPreferences, UserProfileResponse } from "@/types/profi
 
 const CONTENT_OPTIONS = ["Video", "Article", "PDF", "ZIP"];
 const NOTIFICATION_OPTIONS: Array<{ key: keyof NotificationPreferences; label: string }> = [
-  { key: "productUpdates", label: "Product and account updates" },
-  { key: "contentDigests", label: "New article and video digests" },
-  { key: "downloadAlerts", label: "PDF and ZIP resource alerts" },
   { key: "renewalReminders", label: "Billing notices" },
+  { key: "paymentAlerts", label: "Payment alerts" },
+  { key: "contentDigests", label: "New content updates" },
+  { key: "accountNotices", label: "Account notices" },
+  { key: "creatorAnnouncements", label: "Creator announcements" },
 ];
 
 const DEFAULT_NOTIFICATIONS: NotificationPreferences = {
@@ -359,6 +360,9 @@ export default function AccountPage() {
                         <span className="text-sm font-medium text-slate-700 select-none">{pref.label}</span>
                       </label>
                     ))}
+                    <p className="text-[11px] font-medium text-slate-500 leading-relaxed px-3">
+                      These toggles control in-app alerts: renewals, Stripe payment results, new posts from creators you follow, account status changes, and creator studio messages.
+                    </p>
                     <div className="pt-6">
                       <Button
                         type="button"

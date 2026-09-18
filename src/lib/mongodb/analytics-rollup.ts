@@ -1,8 +1,10 @@
 import { connectToMongoDB } from "@/lib/mongodb/connect";
+import { notifyIfAllowed } from "@/lib/mongodb/notifications";
 import {
   AnalyticsModel,
   ContentModel,
   CreatorProfileModel,
+  NotificationModel,
   PaymentModel,
   SubscriptionModel,
   type CreatorProfileDocument,
@@ -152,8 +154,13 @@ export async function runDailyAnalyticsRollup(forDate: Date = new Date()): Promi
             creatorProfileId: creator._id,
           },
         },
-        { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
+          { upsert: true, returnDocument: "after", setDefaultsOnInsert: true }
       );
+      try {
+        await notifyCreatorDigests(snapshot, dayStart);
+      } catch (error) {
+        console.warn("[analytics-rollup:notify]", creator.clerkUserId, error);
+      }
       processed += 1;
     } catch (err) {
       failed += 1;
@@ -170,6 +177,68 @@ export async function runDailyAnalyticsRollup(forDate: Date = new Date()): Promi
     creatorsProcessed: processed,
     creatorsFailed: failed,
   };
+}
+
+function formatCents(cents: number) {
+  return `$${(Math.max(0, cents) / 100).toFixed(2)}`;
+}
+
+async function alreadySentDigest(clerkUserId: string, digestKey: string) {
+  const recent = await NotificationModel.find({
+    recipientClerkUserId: clerkUserId,
+    category: "creator",
+  })
+    .sort({ createdAt: -1 })
+    .limit(20);
+  return recent.some((row) => {
+    const metadata = (row.metadata ?? {}) as { digestKey?: string };
+    return metadata.digestKey === digestKey;
+  });
+}
+
+async function notifyCreatorDigests(
+  snapshot: AnalyticsRollupSnapshot,
+  dayStart: Date
+) {
+  const dateKey = dayStart.toISOString().slice(0, 10);
+  const engagementKey = `engagement:${dateKey}`;
+  if (!(await alreadySentDigest(snapshot.creatorClerkUserId, engagementKey))) {
+    await notifyIfAllowed({
+      recipientClerkUserId: snapshot.creatorClerkUserId,
+      category: "creator",
+      title: "Content engagement report",
+      message: `Yesterday’s library totals: ${snapshot.totalViews} views and ${snapshot.totalDownloads} downloads across ${snapshot.contentCount} posts. ${snapshot.newSubscribersToday} new member${snapshot.newSubscribersToday === 1 ? "" : "s"} today.`,
+      link: "/creator",
+      creatorWorkspaceAlertKey: "engagementReport",
+      metadata: { digestKey: engagementKey, event: "engagement.daily" },
+    });
+  }
+
+  if (dayStart.getUTCDay() !== 1) return;
+
+  const weekAgo = new Date(dayStart);
+  weekAgo.setUTCDate(weekAgo.getUTCDate() - 7);
+  const weekPayments = await PaymentModel.find({
+    creatorClerkUserId: snapshot.creatorClerkUserId,
+    status: "succeeded",
+    paidAt: { $gte: weekAgo, $lt: dayStart },
+  }).select({ amountCents: 1 });
+  const weekCents = weekPayments.reduce(
+    (acc, row) => acc + asNumber((row as { amountCents?: number }).amountCents),
+    0
+  );
+  const weeklyKey = `weekly-revenue:${dateKey}`;
+  if (await alreadySentDigest(snapshot.creatorClerkUserId, weeklyKey)) return;
+
+  await notifyIfAllowed({
+    recipientClerkUserId: snapshot.creatorClerkUserId,
+    category: "creator",
+    title: "Weekly revenue summary",
+    message: `You earned ${formatCents(weekCents)} from ${weekPayments.length} payment${weekPayments.length === 1 ? "" : "s"} over the last 7 days. Current MRR is ${formatCents(snapshot.monthlyRecurringCents)}.`,
+    link: "/creator/revenue",
+    creatorWorkspaceAlertKey: "weeklyRevenue",
+    metadata: { digestKey: weeklyKey, event: "revenue.weekly" },
+  });
 }
 
 /**

@@ -9,7 +9,7 @@ import {
   SubscriptionModel,
   type SubscriptionDocument,
 } from "@/lib/mongodb/models";
-import { createNotification, notifyIfAllowed } from "@/lib/mongodb/notifications";
+import { notifyIfAllowed } from "@/lib/mongodb/notifications";
 import { sendUpcomingInvoiceReminder } from "@/lib/mongodb/renewal-reminders";
 import { recalcCreatorSubscriberCount } from "@/lib/mongodb/creator-counts";
 import { daysRemainingLabel, planTierLabel } from "@/lib/membership/labels";
@@ -117,6 +117,84 @@ function subscriptionIdValue(
 ): string {
   if (!value) return "";
   return typeof value === "string" ? value : value.id;
+}
+
+function expandableId(
+  value: string | { id?: string } | null | undefined
+): string {
+  if (!value) return "";
+  return typeof value === "string" ? value : value.id ?? "";
+}
+
+/**
+ * Stripe API 2025+ moved `invoice.subscription` onto
+ * `invoice.parent.subscription_details.subscription`. Check every known
+ * location so receipts still match a local membership row.
+ */
+export function stripeInvoiceSubscriptionId(invoice: Stripe.Invoice): string {
+  const fromDirect = subscriptionIdValue(
+    (invoice as unknown as { subscription?: string | Stripe.Subscription | null })
+      .subscription ?? null
+  );
+  if (fromDirect) return fromDirect;
+
+  const parent = (
+    invoice as unknown as {
+      parent?: {
+        subscription_details?: {
+          subscription?: string | Stripe.Subscription | null;
+        };
+      } | null;
+    }
+  ).parent;
+  const fromParent = subscriptionIdValue(
+    parent?.subscription_details?.subscription ?? null
+  );
+  if (fromParent) return fromParent;
+
+  for (const line of invoice.lines?.data ?? []) {
+    const lineAny = line as unknown as {
+      subscription?: string | Stripe.Subscription | null;
+      parent?: {
+        subscription_item_details?: {
+          subscription?: string | Stripe.Subscription | null;
+        };
+      } | null;
+    };
+    const fromLine = subscriptionIdValue(lineAny.subscription ?? null);
+    if (fromLine) return fromLine;
+    const fromLineParent = subscriptionIdValue(
+      lineAny.parent?.subscription_item_details?.subscription ?? null
+    );
+    if (fromLineParent) return fromLineParent;
+  }
+
+  return "";
+}
+
+async function findLocalSubscriptionForInvoice(invoice: Stripe.Invoice) {
+  const subId = stripeInvoiceSubscriptionId(invoice);
+  if (subId) {
+    const bySub = await SubscriptionModel.findOne({ stripeSubscriptionId: subId });
+    if (bySub) return bySub;
+  }
+
+  const cust = customerId(invoice.customer);
+  if (!cust) return null;
+
+  const matches = await SubscriptionModel.find({
+    stripeCustomerId: cust,
+    stripeSubscriptionId: { $ne: "" },
+  });
+  if (matches.length === 1) return matches[0];
+  if (matches.length > 1) {
+    const amount = invoice.amount_paid ?? invoice.amount_due ?? 0;
+    const byAmount = matches.filter(
+      (m) => Math.round(Number(m.priceMonthly) * 100) === amount
+    );
+    if (byAmount.length === 1) return byAmount[0];
+  }
+  return null;
 }
 
 type SubscriptionMetadata = {
@@ -287,22 +365,14 @@ export async function upsertSubscriptionFromStripe(
  * `stripeInvoiceId` as the natural idempotency key, so handling the
  * same event twice never duplicates rows.
  */
-async function upsertPaymentFromInvoice(
+export async function upsertPaymentFromInvoice(
   invoice: Stripe.Invoice,
   status: "succeeded" | "failed"
 ): Promise<void> {
   if (!invoice.id) return;
 
-  // `subscription` is on the invoice in this API version even though
-  // the type name varies; cast through unknown to keep us version-safe.
-  const subId = subscriptionIdValue(
-    (invoice as unknown as { subscription?: string | Stripe.Subscription | null })
-      .subscription ?? null
-  );
-
-  const subDoc = subId
-    ? await SubscriptionModel.findOne({ stripeSubscriptionId: subId })
-    : null;
+  const subId = stripeInvoiceSubscriptionId(invoice);
+  const subDoc = await findLocalSubscriptionForInvoice(invoice);
 
   if (!subDoc) {
     console.warn(
@@ -423,10 +493,7 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
 
     case "invoice.upcoming": {
       const invoice = event.data.object as Stripe.Invoice;
-      const subId = subscriptionIdValue(
-        (invoice as unknown as { subscription?: string | Stripe.Subscription | null })
-          .subscription ?? null
-      );
+      const subId = stripeInvoiceSubscriptionId(invoice);
       if (subId) {
         await sendUpcomingInvoiceReminder(subId);
       }
@@ -438,15 +505,8 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
       const invoice = event.data.object as Stripe.Invoice;
       await upsertPaymentFromInvoice(invoice, "succeeded");
 
-      const subId = subscriptionIdValue(
-        (invoice as unknown as { subscription?: string | Stripe.Subscription | null })
-          .subscription ?? null
-      );
-      if (subId) {
-        const subDoc = await SubscriptionModel.findOne({
-          stripeSubscriptionId: subId,
-        });
-        if (subDoc) {
+      const subDoc = await findLocalSubscriptionForInvoice(invoice);
+      if (subDoc) {
           const creator = await CreatorProfileModel.findOne({
             clerkUserId: subDoc.creatorClerkUserId,
           });
@@ -494,24 +554,16 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
             console.warn("[stripe:webhook:notify-paid]", error);
           }
         }
-      }
       return;
     }
 
     case "invoice.payment_failed": {
       const invoice = event.data.object as Stripe.Invoice;
       await upsertPaymentFromInvoice(invoice, "failed");
-      const subId = subscriptionIdValue(
-        (invoice as unknown as { subscription?: string | Stripe.Subscription | null })
-          .subscription ?? null
-      );
-      if (subId) {
-        const subDoc = await SubscriptionModel.findOne({
-          stripeSubscriptionId: subId,
-        });
-        if (subDoc) {
+      const subDoc = await findLocalSubscriptionForInvoice(invoice);
+      if (subDoc) {
           try {
-            await createNotification({
+            await notifyIfAllowed({
               recipientClerkUserId: subDoc.subscriberClerkUserId,
               category: "payment",
               title: "Payment failed",
@@ -533,7 +585,6 @@ export async function handleStripeWebhookEvent(event: Stripe.Event): Promise<voi
             console.warn("[stripe:webhook:notify-failed]", error);
           }
         }
-      }
       return;
     }
 
@@ -583,6 +634,25 @@ export async function confirmCheckoutSessionForUser(input: {
   const doc = await upsertSubscriptionFromStripe(stripeSub, meta);
   if (!doc) {
     return { ready: false, accessLevel: null, status: null };
+  }
+
+  const invoiceId =
+    expandableId(
+      (session as unknown as { invoice?: string | { id?: string } | null }).invoice
+    ) ||
+    expandableId(
+      (stripeSub as unknown as { latest_invoice?: string | { id?: string } | null })
+        .latest_invoice
+    );
+  if (invoiceId) {
+    try {
+      const invoice = await stripe.invoices.retrieve(invoiceId);
+      const paid =
+        invoice.status === "paid" || (invoice.amount_paid ?? 0) > 0;
+      await upsertPaymentFromInvoice(invoice, paid ? "succeeded" : "failed");
+    } catch (error) {
+      console.warn("[stripe:confirm:invoice]", error);
+    }
   }
 
   await notifyPaidMembershipActivated(doc);

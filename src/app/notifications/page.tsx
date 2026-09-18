@@ -603,7 +603,7 @@ export default function NotificationsPage() {
                   <p className="text-sm text-sky-800 font-medium leading-relaxed">
                     {viewerRole === "creator"
                       ? "Workspace alerts for new subscribers, failed payments, and revenue live in Creator Settings. You can still read every in-app notification here."
-                      : "Billing and account alerts appear in this inbox when they happen. Promotional content and creator updates can be toggled off at any time."}
+                      : "Billing notices, payment alerts, new content, account notices, and creator announcements all write to this inbox when those events happen. Turn a toggle off to mute that category."}
                   </p>
                 </div>
               </div>
